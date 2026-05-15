@@ -178,3 +178,48 @@ def test_render_cot_input_matches_render_direct_input():
     inp_cot, _ = render_cot(p, trace)
     inp_direct, _ = render_direct(p, trace)
     assert inp_cot == inp_direct
+
+
+from tinyvm.tokeniser import render_probe_query, probe_targets
+
+
+def test_render_probe_query_input_truncates_to_step_t_plus_query_token():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 7)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    inp, _ = render_probe_query(p, trace, step_t=1)
+    inp_toks = [ID_TO_TOKEN[i] for i in inp]
+    assert inp_toks[0] == BOS
+    assert inp_toks[-1] == EOS
+    assert QUERY in inp_toks
+    # The query token must appear AFTER instruction[1].
+    assert inp_toks.index(QUERY) > inp_toks.index("LOAD")
+
+
+def test_render_probe_query_target_is_register_file_at_step_t():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 7)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    _, tgt = render_probe_query(p, trace, step_t=1)
+    tgt_toks = [ID_TO_TOKEN[i] for i in tgt]
+    # After step 1, R0=5 and R1=7 (and others are 0). Expect 8 EQUALS tokens.
+    assert tgt_toks.count(EQUALS) == 8
+
+
+def test_probe_targets_returns_register_tuples_per_step():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 7)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    targets = probe_targets(p, trace)
+    assert len(targets) == len(trace.steps)
+    assert targets[0][0] == 5
+    assert targets[1][0] == 5 and targets[1][1] == 7

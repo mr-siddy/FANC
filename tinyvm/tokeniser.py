@@ -276,3 +276,29 @@ def render_cot(
         target_tokens.append(NEWLINE)
     target_tokens.append(EOS)
     return inp, [TOKEN_TO_ID[t] for t in target_tokens]
+
+
+def render_probe_query(
+    program: Program,
+    trace: ExecutionTrace,
+    step_t: int,
+) -> tuple[list[int], list[int]]:
+    """Spec §8.3 render_probe_query."""
+    # Input: BOS + program text up to and including instruction at executed step_t + ? + EOS
+    executed_idx = trace.steps[step_t].pc
+    inp_tokens: list[str] = [BOS]
+    for i in range(executed_idx + 1):
+        inp_tokens.extend(_encode_instruction(program.instructions[i]))
+    inp_tokens.append(QUERY)
+    inp_tokens.append(EOS)
+    # Target: register file at step_t (full).
+    tgt_tokens: list[str] = [BOS]
+    tgt_tokens.extend(_register_file_tokens(trace.steps[step_t].regs, prev_regs=None, mode="full"))
+    tgt_tokens.append(NEWLINE)
+    tgt_tokens.append(EOS)
+    return [TOKEN_TO_ID[t] for t in inp_tokens], [TOKEN_TO_ID[t] for t in tgt_tokens]
+
+
+def probe_targets(program: Program, trace: ExecutionTrace) -> list[tuple[int, ...]]:
+    """Spec §8.4 non-text probe mode: register files per step as plain tuples."""
+    return [s.regs for s in trace.steps]
