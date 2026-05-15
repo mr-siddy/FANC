@@ -339,3 +339,21 @@ def test_userop_trace_holds_demos_and_target():
     )
     assert ut.demos[0] is pair
     assert ut.target is pair
+
+
+from tinyvm.generators import substitute_userops, DEFAULT_USEROP_BINDINGS
+
+
+def test_substitute_replaces_userop_with_base_sequence():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 3)),
+        Instruction(Op.USEROP_0, args=(1, 0)),   # DOUBLE R1 R0 (dst=R1, src=R0)
+        Instruction(Op.PRINT, args=(1,)),
+        Instruction(Op.HALT),
+    ))
+    # Decomposition: ADD dst src src, expressed with placeholder indices.
+    # Userop arg position 0 = dst, position 1 = src.
+    decomp = {"DOUBLE": [Instruction(Op.ADD, args=(0, 1, 1))]}
+    p_base = substitute_userops(p, decomp)
+    trace = run(p_base)
+    assert trace.output == [6]

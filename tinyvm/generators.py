@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from tinyvm.isa import Op, Instruction, Program, LITERAL_MIN, LITERAL_MAX, NUM_REGS
 from tinyvm.interpreter import ExecutionTrace
+from tinyvm.tokeniser import USEROP_SLOT_TO_SYMBOL, _OP_ARG_SCHEMA
 
 
 @dataclass(frozen=True)
@@ -482,3 +483,62 @@ class UseropTrace:
     decomposition: dict[str, list[Instruction]]
     demos: list[UseropPair]
     target: UseropPair
+
+
+# Userop binding metadata (spec §7.5; §12 default uses SIGN for slot 4 instead
+# of XOR). Records which slot each named userop occupies, arg count, and which
+# arg position is the destination register. Full decomposition bodies are
+# caller-provided via the `opcode_spec` argument of `gen_userop_trace` (Task 34).
+DEFAULT_USEROP_BINDINGS: dict[str, dict[str, object]] = {
+    "DOUBLE": {"slot": Op.USEROP_0, "n_args": 2, "writes": {0}},
+    "MAX":    {"slot": Op.USEROP_1, "n_args": 3, "writes": {0}},
+    "ABS":    {"slot": Op.USEROP_2, "n_args": 2, "writes": {0}},
+    "MOD":    {"slot": Op.USEROP_3, "n_args": 3, "writes": {0}},
+    "SIGN":   {"slot": Op.USEROP_4, "n_args": 2, "writes": {0}},
+}
+
+
+def substitute_userops(
+    program: Program,
+    decomposition: dict[str, list[Instruction]],
+) -> Program:
+    """Replace every USEROP_* instruction with the base-op sequence from `decomposition`.
+
+    The decomposition template uses POSITIONAL PLACEHOLDER INDICES for register args:
+    a template arg of `a` means "the userop call's arg at position a". For example,
+    the userop `DOUBLE Ri Rj` is called as `USEROP_0(args=(i, j))` and its template
+    is `[ADD Rdst Rsrc Rsrc]` encoded as `Instruction(Op.ADD, args=(0, 1, 1))`:
+    placeholder 0 -> dst, placeholder 1 -> src, placeholder 1 -> src. After
+    substitution with `i=R1, j=R0`, this becomes `ADD R1 R0 R0`.
+
+    Literal args (e.g., the K in `LOAD Rc K`) are NOT remapped — if a template
+    instruction is a LOAD, the second arg is treated as a literal, not a
+    placeholder. The substitute function inspects the per-opcode arg schema to
+    distinguish register placeholders from literal args.
+    """
+    new_insts: list[Instruction] = []
+    for inst in program.instructions:
+        if not inst.op.is_userop():
+            new_insts.append(inst)
+            continue
+        sym = USEROP_SLOT_TO_SYMBOL[inst.op]
+        if sym not in decomposition:
+            raise ValueError(f"no decomposition for userop {sym}")
+        template = decomposition[sym]
+        for t_idx, t_inst in enumerate(template):
+            n_regs, n_lits, has_target = _OP_ARG_SCHEMA[t_inst.op]
+            mapped_args: list[int] = []
+            for k in range(n_regs):
+                # Register arg: remap from placeholder index to concrete reg.
+                mapped_args.append(inst.args[t_inst.args[k]])
+            for k in range(n_lits):
+                # Literal arg: pass through unchanged.
+                mapped_args.append(t_inst.args[n_regs + k])
+            new_inst = Instruction(
+                op=t_inst.op,
+                args=tuple(mapped_args),
+                label=inst.label if t_idx == 0 else None,
+                target=t_inst.target,
+            )
+            new_insts.append(new_inst)
+    return Program.build(tuple(new_insts))
