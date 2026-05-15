@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tinyvm.isa import (
-    DEFAULT_STEP_CAP, NUM_REGS, Op, Program, VAL_MAX, VAL_MIN,
+    DEFAULT_STEP_CAP, NUM_REGS, Op, Program, STACK_DEPTH, VAL_MAX, VAL_MIN,
 )
 
 
@@ -103,6 +103,16 @@ def run(program: Program, step_cap: int | None = DEFAULT_STEP_CAP) -> ExecutionT
             next_pc = program.label_index[inst.target]
         elif op == Op.NOP:
             pass
+        elif op == Op.PUSH:
+            (i,) = args
+            if len(stack) >= STACK_DEPTH:
+                raise InterpreterError("stack overflow")
+            stack.append(regs[i])
+        elif op == Op.POP:
+            (i,) = args
+            if not stack:
+                raise InterpreterError("stack underflow")
+            regs[i] = stack.pop()
         else:
             raise InterpreterError(f"unhandled op (partial impl): {op}")
 

@@ -1,6 +1,6 @@
 import pytest
 
-from tinyvm.isa import Op, Instruction, Program, VAL_MIN, VAL_MAX
+from tinyvm.isa import Op, Instruction, Program, VAL_MIN, VAL_MAX, STACK_DEPTH
 from tinyvm.interpreter import run, InterpreterError, ExecutionTrace
 
 
@@ -135,3 +135,28 @@ def test_fall_off_end_halts_implicitly():
     trace = run(p)
     assert trace.halted is True
     assert trace.steps[-1].regs[0] == 1
+
+
+def test_push_pop_round_trip():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 42)),
+        Instruction(Op.PUSH, args=(0,)),
+        Instruction(Op.LOAD, args=(0, 0)),         # clobber R0
+        Instruction(Op.POP, args=(1,)),            # R1 receives 42
+    )
+    trace = run(p)
+    assert trace.steps[-1].regs[1] == 42
+
+
+def test_push_overflow_raises():
+    insts = [Instruction(Op.LOAD, args=(0, 1))]
+    insts += [Instruction(Op.PUSH, args=(0,)) for _ in range(STACK_DEPTH + 1)]
+    p = _prog(*insts)
+    with pytest.raises(InterpreterError, match="stack overflow"):
+        run(p)
+
+
+def test_pop_underflow_raises():
+    p = _prog(Instruction(Op.POP, args=(0,)))
+    with pytest.raises(InterpreterError, match="stack underflow"):
+        run(p)
