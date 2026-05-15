@@ -113,8 +113,23 @@ def run(program: Program, step_cap: int | None = DEFAULT_STEP_CAP) -> ExecutionT
             if not stack:
                 raise InterpreterError("stack underflow")
             regs[i] = stack.pop()
+        elif op == Op.PRINT:
+            (i,) = args
+            emitted = regs[i]
+            output.append(emitted)
+        elif op == Op.HALT:
+            steps.append(StepRecord(
+                pc=executed_pc,
+                regs=tuple(regs),
+                stack=tuple(stack),
+                emitted=None,
+            ))
+            return ExecutionTrace(steps=steps, output=output, halted=True)
+        elif op.is_userop():
+            raise InterpreterError(f"userop opcode {op.name} encountered; "
+                                   f"substitute via decomposition before run()")
         else:
-            raise InterpreterError(f"unhandled op (partial impl): {op}")
+            raise InterpreterError(f"unhandled op: {op}")
 
         steps.append(StepRecord(
             pc=executed_pc,

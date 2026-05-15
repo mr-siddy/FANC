@@ -9,7 +9,10 @@ def _prog(*insts: Instruction) -> Program:
 
 
 def test_initial_register_state_is_zero():
-    pytest.skip("PRINT/HALT land in Tasks 7-8")
+    p = _prog(Instruction(Op.PRINT, args=(3,)), Instruction(Op.HALT))
+    trace = run(p)
+    assert trace.output == [0]
+    assert trace.halted is True
 
 
 def test_load_then_mov():
@@ -159,4 +162,50 @@ def test_push_overflow_raises():
 def test_pop_underflow_raises():
     p = _prog(Instruction(Op.POP, args=(0,)))
     with pytest.raises(InterpreterError, match="stack underflow"):
+        run(p)
+
+
+def test_print_emits_register_value():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 9)),
+        Instruction(Op.PRINT, args=(0,)),
+        Instruction(Op.LOAD, args=(0, -5)),
+        Instruction(Op.PRINT, args=(0,)),
+        Instruction(Op.HALT),
+    )
+    trace = run(p)
+    assert trace.output == [9, -5]
+
+
+def test_halt_stops_execution_before_remaining_instructions():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 1)),
+        Instruction(Op.HALT),
+        Instruction(Op.LOAD, args=(0, 99)),  # should NOT execute
+    )
+    trace = run(p)
+    assert trace.steps[-1].regs[0] == 1
+    assert trace.halted is True
+
+
+def test_step_cap_raises():
+    p = _prog(
+        Instruction(Op.JMP, args=(), target="L", label="L"),
+    )
+    with pytest.raises(InterpreterError, match="step cap"):
+        run(p, step_cap=100)
+
+
+def test_step_cap_none_disables_the_cap():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 5), label="L"),
+        Instruction(Op.SUB, args=(0, 0, 0)),
+    )
+    trace = run(p, step_cap=None)
+    assert trace.halted is True
+
+
+def test_userop_raises_on_execute():
+    p = _prog(Instruction(Op.USEROP_0, args=(0, 1)))
+    with pytest.raises(InterpreterError, match="userop"):
         run(p)
