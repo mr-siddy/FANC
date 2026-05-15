@@ -272,3 +272,24 @@ def _emit_branch_arith_zero(
     insts.extend(then_block)
     insts.append(Instruction(Op.NOP, label=l_after))
     return insts
+
+
+def _emit_stack_pair(
+    save: int, load_back: int, body: list[Instruction],
+) -> list[Instruction]:
+    """Spec §7.4(a). PUSH `save`, run body, POP into `load_back`."""
+    insts: list[Instruction] = [Instruction(Op.PUSH, args=(save,))]
+    insts.extend(body)
+    insts.append(Instruction(Op.POP, args=(load_back,)))
+    return insts
+
+
+def _emit_stack_nested(
+    saves: list[int], pops: list[int], body: list[Instruction],
+) -> list[Instruction]:
+    """Spec §7.4(b). LIFO: PUSH saves[0], ..., saves[-1]; body; POP pops[0], ..., pops[-1]."""
+    assert len(saves) == len(pops), "saves and pops must have equal length"
+    insts: list[Instruction] = [Instruction(Op.PUSH, args=(s,)) for s in saves]
+    insts.extend(body)
+    insts.extend(Instruction(Op.POP, args=(p,)) for p in pops)
+    return insts

@@ -217,3 +217,34 @@ def test_branch_arith_zero_uses_sub_to_produce_zero():
     p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
     trace = run(p)
     assert trace.steps[-1].regs[3] == 0  # then_block did not execute
+
+
+def test_stack_pair_round_trips_value():
+    from tinyvm.generators import _emit_stack_pair
+
+    insts = _emit_stack_pair(
+        save=0, load_back=1,
+        body=[Instruction(Op.LOAD, args=(0, 99))],  # clobber R0
+    )
+    prologue = [Instruction(Op.LOAD, args=(0, 42))]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[1] == 42
+
+
+def test_stack_nested_round_trips_in_lifo_order():
+    from tinyvm.generators import _emit_stack_nested
+
+    insts = _emit_stack_nested(
+        saves=[0, 1], pops=[3, 2],
+        body=[Instruction(Op.LOAD, args=(0, 0)), Instruction(Op.LOAD, args=(1, 0))],
+    )
+    prologue = [
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 7)),
+    ]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    # LIFO: first POP gets R1's saved value (7), second POP gets R0's (5).
+    assert trace.steps[-1].regs[3] == 7
+    assert trace.steps[-1].regs[2] == 5
