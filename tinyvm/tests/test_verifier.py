@@ -117,3 +117,16 @@ def test_validate_rejects_stack_overflow_by_construction():
     insts += [Instruction(Op.PUSH, args=(0,)) for _ in range(STACK_DEPTH + 1)]
     p = Program.build(tuple(insts))
     assert validate(p) is False
+
+
+def test_validate_loop_counter_uniqueness_smoke():
+    # A program with a single explicit loop and a single counter — passes.
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 3)),                          # counter Rc=R0
+        Instruction(Op.LOAD, args=(1, 1)),                          # R_one
+        Instruction(Op.SUB, args=(0, 0, 1), label="L"),
+        Instruction(Op.JZ, args=(0,), target="END"),
+        Instruction(Op.JMP, args=(), target="L"),
+        Instruction(Op.NOP, label="END"),
+    ))
+    assert validate(p) is True

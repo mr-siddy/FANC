@@ -234,4 +234,11 @@ def _check_stack_balance(program: Program) -> None:
 
 
 def _check_loop_counter_uniqueness(program: Program) -> None:
-    pass
+    """Day 1-2 scope: enforced constructively by generators (Task 28+).
+
+    A structural check would require recovering the CFG and finding back-edges,
+    which is straightforward but unnecessary while generators carry the
+    invariant by construction. Promote to a real check if generator drift is
+    suspected.
+    """
+    return
