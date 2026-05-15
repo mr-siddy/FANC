@@ -96,3 +96,42 @@ def test_lt_strict_less_than():
     trace = run(p)
     regs = trace.steps[-1].regs
     assert regs[2] == 1 and regs[3] == 0 and regs[4] == 0
+
+
+def test_jz_taken_when_register_is_zero():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 0)),
+        Instruction(Op.JZ, args=(0,), target="END"),
+        Instruction(Op.LOAD, args=(1, 99)),       # skipped
+        Instruction(Op.NOP, label="END"),
+    )
+    trace = run(p)
+    assert trace.steps[-1].regs[1] == 0
+
+
+def test_jz_not_taken_when_register_is_nonzero():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 1)),
+        Instruction(Op.JZ, args=(0,), target="END"),
+        Instruction(Op.LOAD, args=(1, 99)),       # executed
+        Instruction(Op.NOP, label="END"),
+    )
+    trace = run(p)
+    assert trace.steps[-1].regs[1] == 99
+
+
+def test_jmp_unconditional():
+    p = _prog(
+        Instruction(Op.JMP, args=(), target="END"),
+        Instruction(Op.LOAD, args=(0, 99)),       # skipped
+        Instruction(Op.NOP, label="END"),
+    )
+    trace = run(p)
+    assert trace.steps[-1].regs[0] == 0
+
+
+def test_fall_off_end_halts_implicitly():
+    p = _prog(Instruction(Op.LOAD, args=(0, 1)))
+    trace = run(p)
+    assert trace.halted is True
+    assert trace.steps[-1].regs[0] == 1

@@ -95,6 +95,14 @@ def run(program: Program, step_cap: int | None = DEFAULT_STEP_CAP) -> ExecutionT
         elif op == Op.LT:
             i, j, k = args
             regs[i] = 1 if regs[j] < regs[k] else 0
+        elif op == Op.JZ:
+            (i,) = args
+            if regs[i] == 0:
+                next_pc = program.label_index[inst.target]
+        elif op == Op.JMP:
+            next_pc = program.label_index[inst.target]
+        elif op == Op.NOP:
+            pass
         else:
             raise InterpreterError(f"unhandled op (partial impl): {op}")
 
