@@ -362,3 +362,30 @@ def render_cot_text(program: Program, trace: ExecutionTrace, mode: str = "full")
         _tokens_to_text([ID_TO_TOKEN[i] for i in inp_ids]),
         _tokens_to_text([ID_TO_TOKEN[i] for i in tgt_ids]),
     )
+
+
+# Deferred import to avoid circular dependency with generators.py
+from tinyvm.generators import UseropTrace
+
+
+def render_userop_direct(utrace: UseropTrace) -> tuple[list[int], list[int]]:
+    """Spec §8.3, Tier 4 condition 1. No decomposition scaffolding."""
+    inp_tokens: list[str] = [BOS]
+    for pair in utrace.demos:
+        for inst in pair.with_symbol.instructions:
+            inp_tokens.extend(_encode_instruction(inst))
+        # Demo output stream as supervision context.
+        for v in pair.trace.output:
+            inp_tokens.extend(_digits_of(v))
+            inp_tokens.append(NEWLINE)
+    # Target program (with userop symbol).
+    for inst in utrace.target.with_symbol.instructions:
+        inp_tokens.extend(_encode_instruction(inst))
+    inp_tokens.append(EOS)
+    # Target supervision = target program's output (via decomposition).
+    tgt_tokens: list[str] = [BOS]
+    for v in utrace.target.trace.output:
+        tgt_tokens.extend(_digits_of(v))
+        tgt_tokens.append(NEWLINE)
+    tgt_tokens.append(EOS)
+    return [TOKEN_TO_ID[t] for t in inp_tokens], [TOKEN_TO_ID[t] for t in tgt_tokens]

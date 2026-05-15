@@ -250,3 +250,33 @@ def test_render_cot_text_includes_register_file_strings():
     _, tgt_text = render_cot_text(p, trace, mode="full")
     assert "R0=1" in tgt_text
     assert "R7=0" in tgt_text
+
+
+from tinyvm.generators import gen_userop_trace
+from tinyvm.tokeniser import render_userop_direct
+
+
+def test_render_userop_direct_concatenates_demos_and_target():
+    decomp = [Instruction(Op.ADD, args=(0, 1, 1))]   # DOUBLE: dst = src + src (placeholder)
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": decomp},
+        k_demos=2, n_target=6, use_stack=False, rng=random.Random(0),
+    )
+    inp, tgt = render_userop_direct(ut)
+    inp_toks = [ID_TO_TOKEN[i] for i in inp]
+    tgt_toks = [ID_TO_TOKEN[i] for i in tgt]
+    # Input must contain the userop symbol (default binding for USEROP_0 == "DOUBLE").
+    assert "DOUBLE" in inp_toks
+    # Target must end with EOS.
+    assert tgt_toks[-1] == EOS
+
+
+def test_render_userop_direct_has_no_decomp_tokens():
+    decomp = [Instruction(Op.ADD, args=(0, 1, 1))]
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": decomp},
+        k_demos=1, n_target=6, use_stack=False, rng=random.Random(0),
+    )
+    inp, _ = render_userop_direct(ut)
+    inp_toks = [ID_TO_TOKEN[i] for i in inp]
+    assert DECOMP not in inp_toks   # this is the *no-scaffold* condition
