@@ -393,3 +393,28 @@ def test_gen_userop_trace_target_trace_outputs_substitution_result():
     expected_base = substitute_userops(ut.target.with_symbol, ut.decomposition)
     expected_trace = run(expected_base)
     assert ut.target.trace.output == expected_trace.output
+
+
+def test_gen_userop_trace_with_stack_smoke():
+    """use_stack=True path: verify the demo + target trace round-trip with stack ops present."""
+    decomp = [Instruction(Op.ADD, args=(0, 1, 1))]
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": decomp},
+        k_demos=1, n_target=12, use_stack=True, rng=random.Random(0),
+    )
+    # Stack ops should appear in the target's base program.
+    has_push = any(inst.op == Op.PUSH for inst in ut.target.base.instructions)
+    has_pop = any(inst.op == Op.POP for inst in ut.target.base.instructions)
+    assert has_push and has_pop, "use_stack=True did not produce PUSH/POP"
+    # Re-running the base substitution should yield the same output.
+    expected = run(substitute_userops(ut.target.with_symbol, ut.decomposition))
+    assert ut.target.trace.output == expected.output
+
+
+def test_gen_userop_trace_rejects_n_args_other_than_2():
+    decomp = [Instruction(Op.ADD, args=(0, 1, 2))]
+    with pytest.raises(ValueError, match="2-arg userops"):
+        gen_userop_trace(
+            opcode_spec={"name": "TRIOP", "n_args": 3, "decomposition": decomp},
+            k_demos=1, n_target=8, use_stack=False, rng=random.Random(0),
+        )

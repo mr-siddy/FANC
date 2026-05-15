@@ -514,11 +514,32 @@ def gen_userop_trace(
     Strategy: bind the userop to USEROP_0; generate k_demos branched programs
     that include a call to the userop, plus one target program. Each program
     is realised in two forms: with_symbol (uses USEROP_0) and base (substituted).
+
+    WARNING: This function mutates module-level state — specifically
+    `USEROP_SLOT_TO_SYMBOL[Op.USEROP_0]` is rebound to `opcode_spec["name"]`.
+    Subsequent calls with a different name OVERWRITE the binding, which can
+    invalidate UseropPair objects from prior calls if those are then passed
+    back into substitute_userops/render_userop_*. Until this is refactored to
+    carry the symbol in a UseropTrace-scoped context, callers must NOT
+    interleave gen_userop_trace invocations with different `name` values
+    against the same Tier-4 evaluation pass. The current Tier 4 baseline uses
+    a single userop per training run, so this is safe in practice — but it
+    must be documented for future multi-userop work.
     """
     name = opcode_spec["name"]
     n_args = opcode_spec["n_args"]
     decomp_template = opcode_spec["decomposition"]
     decomposition = {name: decomp_template}
+    # USEROP_0 has arity (2, 0, False) per the tokeniser schema; we currently
+    # bind only USEROP_0 in this generator. n_args > 2 would silently produce a
+    # with_symbol program that fails validate. Reject explicitly until additional
+    # slots are wired up.
+    if n_args != 2:
+        raise ValueError(
+            f"gen_userop_trace currently supports only 2-arg userops "
+            f"(bound to USEROP_0); got n_args={n_args}. Wire additional "
+            f"USEROP_N slot bindings to lift this constraint."
+        )
     # Bind this userop to USEROP_0 for surface-token rendering.
     USEROP_SLOT_TO_SYMBOL[Op.USEROP_0] = name
 
