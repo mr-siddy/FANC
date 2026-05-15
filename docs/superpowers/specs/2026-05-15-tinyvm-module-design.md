@@ -233,6 +233,8 @@ L_after:
 
 Templates (a) and (b) are sampled at roughly equal rate; template (c) is sampled at ~20%. Without (c), every `JZ` in the training distribution would be preceded by a comparator (`LT`/`EQ`), and a model could learn that surface pattern ("JZ-after-LT means branch") rather than the actual ISA semantics ("JZ jumps iff the read register equals zero"). The (c) variant ensures `JZ` reads zero values produced by arbitrary arithmetic, matching the broader semantics. The comparator opcode in (a)/(b) varies (`LT` or `EQ`) and its inputs are randomised from `alloc.active` so both arms are reachable across the dataset.
 
+*Op-set rationale for (c).* The sampled set is `ADD/SUB/MUL/MOV` — the straight-line non-comparator ops that can produce arbitrary zero values. `EQ` and `LT` are excluded because the entire point of (c) is *JZ-not-after-comparator*. `DIV` is excluded because `DIV/0 → 0` (§6) would conflate "JZ-on-zero-by-arithmetic" with "JZ-on-zero-by-DIV/0", muddying what the template is meant to demonstrate. `NEG` is omitted from the default set — it is semantically fine (`NEG R Rj` is zero iff `Rj` is zero) but produces a narrower distribution of zero values than the binary ops; the distribution sanity layer (§10) can flag the (c) template as under-represented and we add `NEG` back if needed.
+
 ### 7.4 Stack templates
 
 Two shapes, both balanced by construction. Stack ops are emitted only when `GenSpec.use_stack` is true; the generator never produces unbalanced PUSH/POP sequences. Parent §3.2 marks stack as *optional* for Tier 2 and *required* for Tier 4.
@@ -267,17 +269,20 @@ Stack regions never straddle branch or loop boundaries — a frame opens and clo
 **`UseropTrace`** (return type of `gen_userop_trace`):
 
 ```python
-@dataclass
+@dataclass(frozen=True)
+class UseropPair:
+    with_symbol: Program        # program as the model sees it (uses userop symbols)
+    base: Program               # decomposition-substituted form (pure base opcodes)
+    trace: ExecutionTrace       # output produced by interpreting `base`
+
+@dataclass(frozen=True)
 class UseropTrace:
-    decomposition: dict[str, list[Instruction]]      # userop symbol -> base-opcode sequence
-    demos: list[tuple[Program, ExecutionTrace]]      # demos in base opcodes (executable)
-    demos_with_symbol: list[Program]                 # same demos rewritten with userop symbols
-    target_with_symbol: Program                      # target as the model will see it
-    target_trace: ExecutionTrace                     # output produced by interpreting the
-                                                     # decomposition-substituted target
+    decomposition: dict[str, list[Instruction]]     # userop symbol -> base-opcode sequence
+    demos: list[UseropPair]                         # demo programs
+    target: UseropPair                              # the target program
 ```
 
-The renderers (§8.3) consume `UseropTrace` and project to the two Tier 4 conditions: `render_userop_direct` (no scaffolding — the model sees demos using userop symbols and must infer behaviour from input/output) and `render_userop_with_decomposition` (each userop line in demos is followed by a `DECOMP` line carrying the base-opcode rewrite).
+The `UseropPair` dataclass makes the with-symbol / base / trace correspondence structural rather than a "these arrays are parallel by convention" invariant. The renderers (§8.3) consume `UseropTrace` and project to the two Tier 4 conditions: `render_userop_direct` (no scaffolding — the model sees demos using userop symbols and must infer behaviour from input/output) and `render_userop_with_decomposition` (each userop line in demos is followed by a `DECOMP` line carrying the base-opcode rewrite).
 
 ### 7.6 Shaping knobs (`GenSpec.shaping`)
 
@@ -382,7 +387,7 @@ Two responsibilities:
 - Return `1.0` iff the value sequences are exactly equal; else `0.0`.
 - Decode-then-compare is more robust than byte-equality to harmless surface variation, and surfaces decode-side bugs loudly.
 
-**`validate(program: Program) → bool`** — IR well-formedness, called as the post-construct assertion in every generator (§7.1 step 5). Checks:
+**`validate(program: Program, userop_signatures: dict[str, set[int]] | None = None) → bool`** — IR well-formedness, called as the post-construct assertion in every generator (§7.1 step 5). Checks:
 
 - Every label referenced by `JZ`/`JMP` exists in `label_index`.
 - No duplicate label definitions.
@@ -390,6 +395,8 @@ Two responsibilities:
 - Stack-balance: every `POP` on every reachable path is preceded by a matching `PUSH`.
 - Stack-depth: no reachable path exceeds `STACK_DEPTH` between matched `PUSH`/`POP`.
 - Loop-counter uniqueness: no two simultaneously-live loop counters share a register.
+
+**Userop-awareness.** The "every `PRINT` preceded by a write" check needs to know which registers each userop writes to. The `userop_signatures` argument maps each userop symbol (e.g. `"DOUBLE"`) to the set of register indices it writes (e.g. `{i}` for `DOUBLE Ri Rj`). It is required when validating any program containing unsubstituted userop opcodes — i.e. the `with_symbol` programs from `UseropTrace`. `gen_userop_trace` derives the signatures from its `opcode_spec` and passes them in. Pure-base-opcode programs (everything from `gen_counter`, `gen_register_trace`, `gen_branched`, and the `base` programs inside `UseropPair`) pass `userop_signatures=None`.
 
 The validator is structurally redundant with a correctly-constructed generator. That redundancy is the safety net: if the generator ever drifts, `validate` fails before the bug ships into a 200K-example dataset.
 
@@ -421,6 +428,7 @@ The distribution layer catches *quiet* bugs that the others miss — a generator
 - Exact distribution of basic-block sizes within a CFG (target average to be calibrated against §3.2 axis values during implementation).
 - Whether the `?`-state-query training data should be mixed into the supervised set or held strictly for probing (parent §3.1 leans toward "only in probe data"; we'll follow that unless probe results are noisy).
 - The precise initial-zero policy in `validate`: do we ever allow `PRINT Ri` where `Ri` is only ever the initial `0`? Default: disallow, since it's a trivial-answer shortcut.
+- **Userop decomposition choice (settle before `gen_userop_trace` is wired up).** The base ISA lacks bitwise ops and shifts, so decomposing 11-bit `XOR` (the fifth userop named in parent §9.2) into base opcodes requires an unrolled bit-by-bit construction: per bit, extract via `DIV`/`MOD` against a precomputed power of two, XOR via `EQ`/`SUB`, and accumulate via `MUL` and `ADD`. Cost is ~50–100 base instructions per `XOR` occurrence. The other four parent userops decompose to short sequences: `DOUBLE Ri Rj` = `ADD Ri Rj Rj` (1 op); `MAX Ri Rj Rk` = `LT Rt Rj Rk; JZ Rt L; MOV Ri Rj; JMP E; L: MOV Ri Rk; E:` (~5 ops); `ABS Ri Rj` = `LT Rt Rj R0; JZ Rt P; NEG Ri Rj; JMP E; P: MOV Ri Rj; E:` (~5 ops, assuming `R0` holds 0); `MOD Ri Rj Rk` = subtraction-loop (~10 ops). Three options to settle: (a) accept `XOR`'s token cost and produce demos that are ~10× larger than the other userops'; (b) substitute `XOR` with a more decomposable userop such as `MIN`, `SIGN`, `INC`, or `SQUARE`; (c) confirm parent §9.2 is firm. **Default if unresolved at implementation time: option (b), substitute `SIGN` (`SIGN Ri Rj` = `LT Ra Rj R0; LT Rb R0 Rj; SUB Ri Rb Ra`, ~3 ops), since the design intent is "five diverse user-defined behaviours" rather than "specifically XOR."
 
 ## 13. References
 
