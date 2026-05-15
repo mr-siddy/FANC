@@ -1,7 +1,7 @@
 from tinyvm.tokeniser import (
     VOCAB_SIZE, TOKEN_TO_ID, ID_TO_TOKEN, OPCODE_TOKENS, REGISTER_TOKENS,
     DIGIT_TOKENS, MINUS, L_MARKER, COLON, EQUALS, DECOMP, NEWLINE,
-    BOS, EOS, PAD, QUERY, USEROP_TOKENS, encode, render_direct,
+    BOS, EOS, PAD, QUERY, USEROP_TOKENS, encode, render_direct, render_cot,
 )
 from tinyvm.isa import Op, Instruction, Program
 
@@ -146,3 +146,35 @@ def test_render_direct_target_is_print_value_stream():
     _, tgt = render_direct(p, trace)
     expected = [TOKEN_TO_ID[BOS]] + _ids("3", "NEWLINE", "MINUS", "5", "NEWLINE") + [TOKEN_TO_ID[EOS]]
     assert tgt == expected
+
+
+def test_render_cot_full_emits_all_8_registers_per_step():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.PRINT, args=(0,)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    inp, tgt = render_cot(p, trace, mode="full")
+    tgt_toks = [ID_TO_TOKEN[i] for i in tgt]
+    assert tgt_toks.count(EQUALS) == 8 * len(trace.steps)
+
+
+def test_render_cot_modified_emits_only_changed_registers():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 5)),    # changes R0
+        Instruction(Op.NOP),                  # changes nothing
+        Instruction(Op.HALT),                 # changes nothing
+    ))
+    trace = run(p)
+    inp, tgt = render_cot(p, trace, mode="modified")
+    tgt_toks = [ID_TO_TOKEN[i] for i in tgt]
+    assert tgt_toks.count(EQUALS) == 1
+
+
+def test_render_cot_input_matches_render_direct_input():
+    p = Program.build((Instruction(Op.LOAD, args=(0, 1)), Instruction(Op.HALT)))
+    trace = run(p)
+    inp_cot, _ = render_cot(p, trace)
+    inp_direct, _ = render_direct(p, trace)
+    assert inp_cot == inp_direct

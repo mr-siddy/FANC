@@ -233,3 +233,46 @@ def render_direct(program: Program, trace: ExecutionTrace) -> tuple[list[int], l
         target_tokens.append(NEWLINE)
     target_tokens.append(EOS)
     return inp, [TOKEN_TO_ID[t] for t in target_tokens]
+
+
+def _register_file_tokens(regs: tuple[int, ...], prev_regs: tuple[int, ...] | None, mode: str) -> list[str]:
+    """Format a register file as 'R0 EQUALS <digits> R1 EQUALS <digits> ...'.
+
+    mode='full' emits all NUM_REGS; 'modified' emits only registers whose value
+    differs from prev_regs (or from 0 on first step). Returns tokens (no trailing NEWLINE — caller appends).
+    """
+    out: list[str] = []
+    # On first step, prev_regs is None; treat initial state as all zeros.
+    reference = prev_regs if prev_regs is not None else tuple(0 for _ in range(NUM_REGS))
+    for i in range(NUM_REGS):
+        if mode == "modified" and regs[i] == reference[i]:
+            continue
+        out.append(REGISTER_TOKENS[i])
+        out.append(EQUALS)
+        out.extend(_digits_of(regs[i]))
+    return out
+
+
+def render_cot(
+    program: Program,
+    trace: ExecutionTrace,
+    mode: str = "full",
+) -> tuple[list[int], list[int]]:
+    """Spec §8.3 render_cot. mode in {'full', 'modified'}."""
+    if mode not in ("full", "modified"):
+        raise ValueError(f"mode must be 'full' or 'modified', got {mode!r}")
+    inp = [TOKEN_TO_ID[BOS]] + encode(program) + [TOKEN_TO_ID[EOS]]
+    target_tokens: list[str] = [BOS]
+    prev_regs: tuple[int, ...] | None = None
+    for s in trace.steps:
+        inst = program.instructions[s.pc]
+        target_tokens.extend(_encode_instruction(inst))
+        rf = _register_file_tokens(s.regs, prev_regs, mode)
+        target_tokens.extend(rf)
+        target_tokens.append(NEWLINE)
+        prev_regs = s.regs
+    for v in trace.output:
+        target_tokens.extend(_digits_of(v))
+        target_tokens.append(NEWLINE)
+    target_tokens.append(EOS)
+    return inp, [TOKEN_TO_ID[t] for t in target_tokens]
