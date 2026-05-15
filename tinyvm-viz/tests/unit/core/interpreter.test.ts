@@ -55,3 +55,31 @@ describe("interpreter: arithmetic", () => {
     expect(run(p).steps.at(-1)!.regs[2]).toBe(-3);
   });
 });
+
+describe("interpreter: comparisons", () => {
+  it("EQ → 1 if equal else 0", () => {
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 4] },
+      { op: Op.LOAD, args: [1, 4] },
+      { op: Op.LOAD, args: [2, 5] },
+      { op: Op.EQ, args: [3, 0, 1] },
+      { op: Op.EQ, args: [4, 0, 2] },
+      { op: Op.HALT, args: [] },
+    ]);
+    const regs = run(p).steps.at(-1)!.regs;
+    expect([regs[3], regs[4]]).toEqual([1, 0]);
+  });
+
+  it("LT is strict", () => {
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 2] },
+      { op: Op.LOAD, args: [1, 5] },
+      { op: Op.LT, args: [2, 0, 1] },
+      { op: Op.LT, args: [3, 1, 0] },
+      { op: Op.LT, args: [4, 0, 0] },
+      { op: Op.HALT, args: [] },
+    ]);
+    const regs = run(p).steps.at(-1)!.regs;
+    expect([regs[2], regs[3], regs[4]]).toEqual([1, 0, 0]);
+  });
+});

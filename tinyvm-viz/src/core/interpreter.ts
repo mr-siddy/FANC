@@ -82,6 +82,16 @@ export function run(program: Program, stepCap: number | null = DEFAULT_STEP_CAP)
         regs[i] = clamp(-regs[j]!);
         break;
       }
+      case Op.EQ: {
+        const [i, j, k] = inst.args as [number, number, number];
+        regs[i] = regs[j]! === regs[k]! ? 1 : 0;
+        break;
+      }
+      case Op.LT: {
+        const [i, j, k] = inst.args as [number, number, number];
+        regs[i] = regs[j]! < regs[k]! ? 1 : 0;
+        break;
+      }
       case Op.HALT: {
         steps.push({ pc: executedPc, regs: [...regs], stack: [...stack], emitted: null });
         return { steps, output, halted: true };
