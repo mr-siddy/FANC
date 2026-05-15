@@ -122,3 +122,19 @@ def test_gen_register_trace_has_no_branches_or_loops():
     p = gen_register_trace(n=32, k=4, rng=random.Random(0))
     for inst in p.instructions:
         assert inst.op not in (Op.JZ, Op.JMP)
+
+
+def test_loop_countdown_terminates_after_k_iterations():
+    from tinyvm.generators import _emit_loop_countdown, _LabelGen
+
+    label_gen = _LabelGen()
+    counter, r_one = 0, 1
+    body = [Instruction(Op.ADD, args=(2, 2, 2))]  # arbitrary body
+    insts = _emit_loop_countdown(
+        counter=counter, r_one=r_one, k=3, body=body, label_gen=label_gen,
+    )
+    prologue = [Instruction(Op.LOAD, args=(r_one, 1))]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    final_regs = trace.steps[-1].regs
+    assert final_regs[counter] == 0

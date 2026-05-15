@@ -131,3 +131,48 @@ def gen_register_trace(
     insts.append(Instruction(Op.PRINT, args=(print_target,)))
     insts.append(Instruction(Op.HALT))
     return Program.build(tuple(insts))
+
+
+class _LabelGen:
+    """Fresh-label allocator; emits L0, L1, ..."""
+    def __init__(self) -> None:
+        self._next = 0
+
+    def fresh(self) -> str:
+        lbl = f"L{self._next}"
+        self._next += 1
+        return lbl
+
+
+def _emit_loop_countdown(
+    counter: int,
+    r_one: int,
+    k: int,
+    body: list[Instruction],
+    label_gen: _LabelGen,
+) -> list[Instruction]:
+    """Emit a count-down loop body executing `body` exactly k times.
+
+    Pre-condition: r_one must be loaded with 1 before this block. Counter
+    is loaded inline.
+    """
+    l_top = label_gen.fresh()
+    l_done = label_gen.fresh()
+    insts: list[Instruction] = [
+        Instruction(Op.LOAD, args=(counter, k)),
+    ]
+    if body:
+        insts.append(_with_label(body[0], l_top))
+        insts.extend(body[1:])
+    else:
+        insts.append(Instruction(Op.NOP, label=l_top))
+    insts.append(Instruction(Op.SUB, args=(counter, counter, r_one)))
+    insts.append(Instruction(Op.JZ, args=(counter,), target=l_done))
+    insts.append(Instruction(Op.JMP, args=(), target=l_top))
+    insts.append(Instruction(Op.NOP, label=l_done))
+    return insts
+
+
+def _with_label(inst: Instruction, label: str) -> Instruction:
+    """Return a copy of inst carrying `label`."""
+    return Instruction(op=inst.op, args=inst.args, label=label, target=inst.target)
