@@ -53,7 +53,10 @@ def gen_counter(n: int, rng: random.Random) -> Program:
             insts.append(Instruction(op, args=(0, 0)))
     insts.append(Instruction(Op.PRINT, args=(0,)))
     insts.append(Instruction(Op.HALT))
-    return Program.build(tuple(insts))
+    program = Program.build(tuple(insts))
+    from tinyvm.verifier import validate
+    assert validate(program), "gen_counter produced invalid program (generator drift?)"
+    return program
 
 
 def _allocate_registers(k: int, rng: random.Random) -> list[int]:
@@ -120,6 +123,12 @@ def gen_register_trace(
 ) -> Program:
     """Tier 1 generator (spec §7.5 row 2) with optional ShapingSpec knobs."""
     shaping = shaping or ShapingSpec()
+
+    def _check(p: Program) -> Program:
+        from tinyvm.verifier import validate
+        assert validate(p), "gen_register_trace produced invalid program"
+        return p
+
     active = _allocate_registers(k=k, rng=rng)
     # Reserve `distractor_regs` slots that are written but excluded from print pool.
     n_dist = min(shaping.distractor_regs, len(active) - 1) if shaping.distractor_regs else 0
@@ -149,15 +158,15 @@ def gen_register_trace(
         p = Program.build(tuple(insts))
         last_program = p
         if not shaping.flat_output_histogram:
-            return p
+            return _check(p)
         out_val = run(p).output[0]
         bucket = out_val // 100
         if rng.random() > min(1.0, 1.0 / (1 + buckets[bucket] / 10.0)):
             buckets[bucket] += 1
             continue
         buckets[bucket] += 1
-        return p
-    return last_program  # last-resort fallback
+        return _check(p)
+    return _check(last_program)  # last-resort fallback
 
 
 class _LabelGen:
@@ -459,7 +468,10 @@ def gen_branched(spec: GenSpec, rng: random.Random) -> Program:
     # written on every path.  No additional safety LOAD needed.
     insts.append(Instruction(Op.PRINT, args=(print_target,)))
     insts.append(Instruction(Op.HALT))
-    return Program.build(tuple(insts))
+    program = Program.build(tuple(insts))
+    from tinyvm.verifier import validate
+    assert validate(program), f"gen_branched produced invalid program (seed-dependent generator drift?)"
+    return program
 
 
 def _was_written(insts: list[Instruction], reg: int) -> bool:
@@ -623,6 +635,15 @@ def gen_userop_trace(
         for _ in range(k_demos)
     ]
     target = _gen_one(n=n_target, rng_local=random.Random(rng.random()))
+
+    # Self-validate every generated program.
+    from tinyvm.verifier import validate
+    # base programs are pure base-op; validate with no signatures.
+    for pair in demos + [target]:
+        assert validate(pair.base), "gen_userop_trace produced invalid base program"
+        assert validate(pair.with_symbol, userop_signatures={name: {0}}), (
+            f"gen_userop_trace produced invalid with_symbol program for {name}"
+        )
     return UseropTrace(decomposition=decomposition, demos=demos, target=target)
 
 

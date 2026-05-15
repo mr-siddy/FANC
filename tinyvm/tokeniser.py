@@ -364,6 +364,37 @@ def render_cot_text(program: Program, trace: ExecutionTrace, mode: str = "full")
     )
 
 
+def render_probe_query_text(
+    program: Program,
+    trace: ExecutionTrace,
+    step_t: int,
+) -> tuple[str, str]:
+    """Text-level render_probe_query for Qwen tokeniser hand-off (spec §8.6)."""
+    inp_ids, tgt_ids = render_probe_query(program, trace, step_t)
+    return (
+        _tokens_to_text([ID_TO_TOKEN[i] for i in inp_ids]),
+        _tokens_to_text([ID_TO_TOKEN[i] for i in tgt_ids]),
+    )
+
+
+def render_userop_direct_text(utrace: "UseropTrace") -> tuple[str, str]:
+    """Text-level render_userop_direct for Qwen tokeniser hand-off (spec §8.6)."""
+    inp_ids, tgt_ids = render_userop_direct(utrace)
+    return (
+        _tokens_to_text([ID_TO_TOKEN[i] for i in inp_ids]),
+        _tokens_to_text([ID_TO_TOKEN[i] for i in tgt_ids]),
+    )
+
+
+def render_userop_with_decomposition_text(utrace: "UseropTrace") -> tuple[str, str]:
+    """Text-level render_userop_with_decomposition for Qwen tokeniser hand-off (spec §8.6)."""
+    inp_ids, tgt_ids = render_userop_with_decomposition(utrace)
+    return (
+        _tokens_to_text([ID_TO_TOKEN[i] for i in inp_ids]),
+        _tokens_to_text([ID_TO_TOKEN[i] for i in tgt_ids]),
+    )
+
+
 # Deferred import to avoid circular dependency with generators.py
 from tinyvm.generators import UseropTrace
 

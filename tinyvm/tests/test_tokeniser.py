@@ -313,3 +313,45 @@ def test_render_userop_with_decomposition_target_has_no_decomp():
         1 for inst in ut.demos[0].with_symbol.instructions if inst.op.is_userop()
     )
     assert inp_toks.count(DECOMP) == n_demo_userops
+
+
+from tinyvm.tokeniser import (
+    render_probe_query_text,
+    render_userop_direct_text,
+    render_userop_with_decomposition_text,
+)
+
+
+def test_render_probe_query_text_produces_string():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    inp_text, tgt_text = render_probe_query_text(p, trace, step_t=0)
+    assert "LOAD R0 5" in inp_text
+    assert "?" in inp_text
+    assert "R0=5" in tgt_text
+
+
+def test_render_userop_direct_text_produces_string():
+    decomp = [Instruction(Op.ADD, args=(0, 1, 1))]
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": decomp},
+        k_demos=1, n_target=6, use_stack=False, rng=random.Random(0),
+    )
+    inp_text, tgt_text = render_userop_direct_text(ut)
+    assert "DOUBLE" in inp_text
+    # No DECOMP keyword in input text for direct (no-scaffold) variant.
+    assert "DECOMP" not in inp_text
+
+
+def test_render_userop_with_decomposition_text_produces_string():
+    decomp = [Instruction(Op.ADD, args=(0, 1, 1))]
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": decomp},
+        k_demos=1, n_target=6, use_stack=False, rng=random.Random(0),
+    )
+    inp_text, _ = render_userop_with_decomposition_text(ut)
+    # Scaffold variant must include DECOMP markers in demo annotations.
+    assert "DECOMP" in inp_text
