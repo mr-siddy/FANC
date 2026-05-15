@@ -31,3 +31,40 @@ def test_op_is_userop_helper():
     assert Op.USEROP_4.is_userop()
     assert not Op.LOAD.is_userop()
     assert not Op.HALT.is_userop()
+
+
+import pytest
+from tinyvm.isa import Instruction, Program
+
+
+def test_instruction_is_frozen():
+    inst = Instruction(op=Op.LOAD, args=(0, 5))
+    with pytest.raises((AttributeError, TypeError)):
+        inst.op = Op.ADD  # type: ignore[misc]
+
+
+def test_instruction_default_label_and_target_are_none():
+    inst = Instruction(op=Op.ADD, args=(0, 1, 2))
+    assert inst.label is None
+    assert inst.target is None
+
+
+def test_program_precomputes_label_index():
+    insts = (
+        Instruction(op=Op.LOAD, args=(0, 1), label="L0"),
+        Instruction(op=Op.ADD, args=(0, 0, 0)),
+        Instruction(op=Op.JMP, args=(), target="L0"),
+        Instruction(op=Op.HALT, args=(), label="END"),
+    )
+    p = Program.build(insts)
+    assert p.label_index == {"L0": 0, "END": 3}
+    assert len(p.instructions) == 4
+
+
+def test_program_build_rejects_duplicate_labels():
+    insts = (
+        Instruction(op=Op.NOP, args=(), label="L0"),
+        Instruction(op=Op.NOP, args=(), label="L0"),
+    )
+    with pytest.raises(ValueError, match="duplicate label"):
+        Program.build(insts)
