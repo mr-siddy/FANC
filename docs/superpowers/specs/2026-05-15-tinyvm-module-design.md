@@ -18,7 +18,7 @@ In scope:
 - **`isa`** — instruction dataclasses, opcode enum, ISA constants.
 - **`interpreter`** — pure function from `Program` IR to `ExecutionTrace`.
 - **`generators`** — four entry points covering Tiers 0, 1, 2, 4.
-- **`tokeniser`** — 64-token vocab + three target renderers (direct / CoT / probe-query) + bidirectional encode/decode.
+- **`tokeniser`** — 64-token vocab + five target renderers (direct / CoT / probe-query / userop-direct / userop-with-decomposition) + bidirectional encode/decode.
 - **`verifier`** — output exact-match scorer (= RLVR reward) + IR well-formedness validator.
 - **Test suite** — five layers (unit-interpreter, unit-tokeniser, property-generator, distribution sanity, determinism).
 
@@ -38,22 +38,25 @@ Out of scope (Day 3+):
 | 3 | **Generate-only-valid.** Generator guarantees termination and that every `PRINT` reads a defined register. Interpreter assumes well-formed input. | Pristine supervision signal; difficulty axes stay honest. Step-cap exists only as a paranoia backstop. |
 | 4 | **Digit-encoded labels.** One `L` marker token + reused digits (`L`, `1`, `2` for `L12`) + `COLON` for definitions. | Scales past Tier 4's 16-branch requirement; leaves ~20 vocab slots free. |
 | 5 | **Configurable anti-shortcut shaping.** Generator is neutral by default; shaping knobs (flat output histogram, distractor regs, randomised PRINT target, length decorrelation) enabled per-tier. | Tier 0/1 stays simple for clean baselines; shaping is available without retrofitting when Tier 2/3 detection flags shortcuts. |
-| 6 | **Multiple loop and branch templates.** 3 loop shapes (count-down, count-up, test-at-top) and 2 branch shapes (if, if-else). All termination-guaranteed by construction. | Defeats "learn the surface shape" shortcut; the model must learn the control-flow *semantics*, not one canonical template. |
-| 7 | **CoT renderer emits all 8 registers per step (configurable, default full).** | Matches parent doc §7.1 condition 2 literally; sparse mode available for long-trajectory experiments. |
+| 6 | **Multiple loop, branch, and stack templates.** 3 loop shapes (count-down, count-up, test-at-top), 3 branch shapes (if, if-else, arithmetic-zero-test), 2 stack-frame shapes (depth-1, nested). All termination-guaranteed and balance-guaranteed by construction. | Defeats "learn the surface shape" shortcut; in particular, the arithmetic-zero-test branch ensures `JZ` isn't always preceded by a comparator. |
+| 7 | **CoT renderer emits all 8 registers per step (configurable, default full).** | Matches parent doc §7.1 condition 2 literally; sparse mode available for long-trajectory experiments but flagged non-comparable. |
+| 8 | **Tier 4 decomposition scaffold is its own renderer**, distinct from Tier 2's register-file CoT. `gen_userop_trace` returns a `UseropTrace` carrying the decomposition map. | Parent §9.2 cond. 2 ("each demonstration step is annotated with the equivalent base-opcode decomposition") is structurally different from §7.1 cond. 2 (per-step register file). One renderer cannot serve both correctly. |
+| 9 | **Active register subset sampled uniformly from `R0..R7` per program**, not fixed to `R0..R(k-1)`. | Prevents positional vocab bias (R0 live in 100% of programs, R7 live in 0% of low-k programs). |
+| 10 | **`l` is a per-program iteration budget**, not a loop count. | Matches parent §11.1 "≤ l loop iterations" and §3.2 axis units. Generator picks `(num_loops, K_1, …)` such that `Σ K_i ≤ l`. |
 
 ## 4. Module structure
 
 ```
 tinyvm/
-├── isa.py          # ~60 LOC  — Op enum, Instruction, Program, constants
+├── isa.py          # ~70 LOC  — Op enum (incl. userop slots), Instruction, Program, constants
 ├── interpreter.py  # ~80 LOC  — run(Program) -> ExecutionTrace
-├── generators.py   # ~200 LOC — 4 generators + skeleton-builder + block-filler
-├── tokeniser.py    # ~100 LOC — encode/decode + 3 renderers
+├── generators.py   # ~260 LOC — 4 generators + skeleton-builder + block-filler + stack/userop
+├── tokeniser.py    # ~140 LOC — encode/decode + 5 renderers (incl. userop direct/decomp)
 ├── verifier.py     # ~40 LOC  — score_output + validate
-└── tests/          # ~200 LOC — 5 test layers
+└── tests/          # ~220 LOC — 5 test layers
 ```
 
-Total: ~480 LOC excluding tests, ~680 including. The parent doc estimates ~500 LOC for this deliverable.
+Total: ~590 LOC excluding tests, ~810 including. The parent doc estimates ~500 LOC; we're ~20% over that envelope after adding stack templates, the third branch template, and the two userop renderers. Worth it for spec fidelity.
 
 ## 5. ISA (`isa.py`)
 
@@ -61,11 +64,16 @@ Pure data; no logic.
 
 ```python
 class Op(IntEnum):
+    # Base ISA — what the interpreter understands.
     LOAD = 0; MOV = 1; ADD = 2; SUB = 3; MUL = 4; DIV = 5
     NEG = 6; EQ = 7; LT = 8
     JZ = 9; JMP = 10
     PUSH = 11; POP = 12
     PRINT = 13; NOP = 14; HALT = 15
+    # Userop slots — symbolic only; interpreter raises if asked to execute one.
+    # Reserved for Tier 4 (DOUBLE, MAX, ABS, MOD, XOR). gen_userop_trace
+    # substitutes these with their decomposition before interpretation.
+    USEROP_0 = 16; USEROP_1 = 17; USEROP_2 = 18; USEROP_3 = 19; USEROP_4 = 20
 
 @dataclass(frozen=True)
 class Instruction:
@@ -125,6 +133,9 @@ Semantics (all in one place; no fallback semantics scattered through callers):
 - Fall off end of instruction list ⇒ implicit `HALT`.
 - **Step-cap** (see signature above): if `step_cap is not None` and execution exceeds it, raise `InterpreterError`. Under generate-only-valid this never fires on legitimate data; if it does, it's a generator bug and we want it loud.
 - `PUSH` on full stack → `InterpreterError`. `POP` on empty stack → `InterpreterError`. Same logic.
+- Encountering a `USEROP_*` opcode → `InterpreterError`. Userop symbols are not executable; `gen_userop_trace` substitutes them with their base-opcode decomposition before producing the trace passed to the interpreter. If the interpreter ever sees a userop, something upstream forgot to substitute.
+
+**On the asymmetric error policy.** `DIV` by zero returns `0` silently; stack overflow/underflow raises. The asymmetry is intentional: `DIV/0` is part of the in-distribution arithmetic behaviour the model is supervised to predict (the spec defines it as a normal-path value), while stack faults are reachable only via a generator bug under generate-only-valid. Loud errors on the latter catch upstream bugs early; silent semantics on the former preserve the supervision signal.
 
 ## 7. Generators (`generators.py`)
 
@@ -134,7 +145,9 @@ Semantics (all in one place; no fallback semantics scattered through callers):
 def generate(spec: GenSpec, rng: Random) -> Program:
     # 1. Build control-flow skeleton from axis dials.
     cfg = build_cfg(num_blocks=..., branches=spec.b, loops=spec.l, rng=rng)
-    # 2. Allocate registers; designate loop counters and PRINT target(s).
+    # 2. Allocate registers: sample the active subset of size k uniformly
+    #    from {R0..R7} per program (NOT R0..R(k-1)); designate loop counters
+    #    and PRINT target(s) within the active subset.
     alloc = allocate_registers(cfg, k=spec.k, rng=rng)
     # 3. Fill each basic block with random straight-line ops over alloc.active,
     #    excluding any register currently serving as a live loop counter.
@@ -146,13 +159,15 @@ def generate(spec: GenSpec, rng: Random) -> Program:
     return program
 ```
 
+Per-program random sampling of the active register subset prevents `R0` from being live in 100% of programs (and `R7` from being live in 0% of low-`k` programs), which would otherwise be a vocab-positional bias the model could exploit.
+
 ### 7.2 Loop templates (all termination-guaranteed)
 
-Three shapes, sampled uniformly when the CFG needs a loop unless the `GenSpec` pins one:
+Three shapes, sampled uniformly when the CFG needs a loop unless the `GenSpec` pins one. The per-loop iteration count `K` is drawn from the remaining program-wide iteration budget (`GenSpec.l`, see §7.5): when picking loops for a program, the generator chooses `(num_loops, K_1, …, K_num_loops)` such that `Σ K_i ≤ l`. This makes `l` a budget on total dynamic loop work, matching parent §11.1's "≤ l loop iterations" wording and §3.2's per-tier units.
 
 **(a) count-down**
 ```
-    LOAD Rc K              ; K ∈ [1, max_iters]
+    LOAD Rc K              ; K drawn from remaining iteration budget
 L_top:
     <body>
     SUB  Rc Rc R_one
@@ -208,18 +223,63 @@ L_else:
 L_after:
 ```
 
-The comparator opcode varies (`LT` or `EQ`) and its inputs are randomised from `alloc.active` so both arms are reachable across the dataset.
+**(c) arithmetic-zero-test** (`JZ` reads a non-comparator register)
+```
+    ADD/SUB/MUL/MOV Rc Ri Rj   ; any straight-line op produces Rc
+    JZ              Rc L_after
+    <then block>
+L_after:
+```
 
-### 7.4 The four generators
+Templates (a) and (b) are sampled at roughly equal rate; template (c) is sampled at ~20%. Without (c), every `JZ` in the training distribution would be preceded by a comparator (`LT`/`EQ`), and a model could learn that surface pattern ("JZ-after-LT means branch") rather than the actual ISA semantics ("JZ jumps iff the read register equals zero"). The (c) variant ensures `JZ` reads zero values produced by arbitrary arithmetic, matching the broader semantics. The comparator opcode in (a)/(b) varies (`LT` or `EQ`) and its inputs are randomised from `alloc.active` so both arms are reachable across the dataset.
+
+### 7.4 Stack templates
+
+Two shapes, both balanced by construction. Stack ops are emitted only when `GenSpec.use_stack` is true; the generator never produces unbalanced PUSH/POP sequences. Parent §3.2 marks stack as *optional* for Tier 2 and *required* for Tier 4.
+
+**(a) push-pop pair** (depth-1 frame)
+```
+    PUSH Ri
+    <body, may overwrite Ri; must not touch the stack itself>
+    POP  Rj            ; Rj receives Ri's saved value
+```
+
+**(b) nested push-pop** (depth-2 frame; generalises to higher depth)
+```
+    PUSH Ri
+    PUSH Rj
+    <body>
+    POP  Rk
+    POP  Rl
+```
+
+Stack regions never straddle branch or loop boundaries — a frame opens and closes within a single basic block. This keeps the static balance check `validate()` performs (§9) cheap and exact, and it matches the only stack discipline the ISA can support cleanly (there's no `RET`/exception unwind). The generator caps simultaneous frame depth conservatively at 4 (well under `STACK_DEPTH = 16`) to leave headroom. The number of PUSH/POP frames per program is controlled by a separate `stack_frames: int` field on `GenSpec`, defaulting to a small random count when `use_stack` is true.
+
+### 7.5 The four generators
 
 | Generator | Signature | Skeleton | Notes |
 |---|---|---|---|
-| `gen_counter` | `(n, rng)` | 1 block, 0 branches, 0 loops | Tier 0. `k=1`, only `R0`, only `ADD/SUB/NEG/MOV` from the arithmetic set. Trivial. |
-| `gen_register_trace` | `(n, k, rng, shaping)` | 1 block, 0 branches, 0 loops | Tier 1. `k` active regs from `[2, 8]`; full arithmetic vocabulary; single terminal `PRINT`. |
-| `gen_branched` | `(n, k, b, l, rng, shaping)` | `b` branches + `l` loops | Tier 2 / 4. All templates above. May emit multiple `PRINT`s. |
-| `gen_userop_trace` | `(opcode_spec, k_demos, n_target, rng)` | uses `gen_branched` internally | Tier 4. Generates `k_demos` (input → output) example programs **using the base-opcode decomposition**, then one *target* program that uses the userop symbol directly. CoT-scaffolded version is produced by the tokeniser's CoT renderer, not a separate generator. |
+| `gen_counter` | `(n, rng)` | 1 block, 0 branches, 0 loops, no stack | Tier 0. `k=1`, only `R0`, only `ADD/SUB/NEG/MOV` from the arithmetic set. Trivial. |
+| `gen_register_trace` | `(n, k, rng, shaping)` | 1 block, 0 branches, 0 loops, no stack | Tier 1. `k` active regs sampled uniformly from `R0..R7`, size in `[2, 8]`; full arithmetic vocabulary; single terminal `PRINT`. |
+| `gen_branched` | `(n, k, b, l, use_stack, stack_frames, rng, shaping)` | `b` branches + loop budget `l` + optional stack frames | Tier 2 / 4. All templates above. `l` is the **per-program total loop-iteration budget** (sum of all loop `K_i` ≤ `l`); §7.2 templates are sampled and per-loop `K` values picked to fit. `use_stack` enables §7.4 stack templates (Tier 2 = optional, Tier 4 = required); `stack_frames` controls how many PUSH/POP frames to emit. May emit multiple `PRINT`s. |
+| `gen_userop_trace` | `(opcode_spec, k_demos, n_target, use_stack, rng)` | uses `gen_branched` internally; returns a `UseropTrace` (below) | Tier 4. Generates `k_demos` (input → output) example programs **whose bodies are written entirely in base opcodes that compute the userop's behaviour**, plus one *target* program that uses the userop symbol directly. The target's ground-truth output is computed by substituting each userop with its base-opcode decomposition before interpretation; the interpreter never sees userop symbols. The CoT-with-decomposition scaffold (parent §9.2 condition 2) is produced by `render_userop_with_decomposition` (§8.3), **not** by `render_cot` — those are two different scaffolds. |
 
-### 7.5 Shaping knobs (`GenSpec.shaping`)
+**`UseropTrace`** (return type of `gen_userop_trace`):
+
+```python
+@dataclass
+class UseropTrace:
+    decomposition: dict[str, list[Instruction]]      # userop symbol -> base-opcode sequence
+    demos: list[tuple[Program, ExecutionTrace]]      # demos in base opcodes (executable)
+    demos_with_symbol: list[Program]                 # same demos rewritten with userop symbols
+    target_with_symbol: Program                      # target as the model will see it
+    target_trace: ExecutionTrace                     # output produced by interpreting the
+                                                     # decomposition-substituted target
+```
+
+The renderers (§8.3) consume `UseropTrace` and project to the two Tier 4 conditions: `render_userop_direct` (no scaffolding — the model sees demos using userop symbols and must infer behaviour from input/output) and `render_userop_with_decomposition` (each userop line in demos is followed by a `DECOMP` line carrying the base-opcode rewrite).
+
+### 7.6 Shaping knobs (`GenSpec.shaping`)
 
 A flat dataclass, each field independently togglable. Off by default in Tiers 0 and 1.
 
@@ -230,7 +290,7 @@ A flat dataclass, each field independently togglable. Off by default in Tiers 0 
 | `randomize_print_target` | Pick `PRINT` register uniformly over active regs, not the most-recently-written one | "PRINT is always the last touched reg" |
 | `decorrelate_length` | Within a length bucket, scramble pad/contract so length doesn't leak answer magnitude | Length-based shortcuts |
 
-### 7.6 Reproducibility
+### 7.7 Reproducibility
 
 Every generator takes a `Random` instance (or seed `int`). Same seed → bit-exact program. Dataset-level reproducibility is via `(seed_base, indices)`: `program_i = generate(spec, Random(seed_base ^ i))`. Parent §11.2 requires fresh re-generation per seed to avoid memorisation artefacts; this scheme satisfies that.
 
@@ -247,10 +307,11 @@ Every generator takes a `Random` instance (or seed `int`). Same seed → bit-exa
 | Label marker | 1 | `L` |
 | Colon | 1 | `COLON` (label definitions) |
 | Equals | 1 | `EQUALS` (register-file printout format) |
+| Decomp marker | 1 | `DECOMP` (Tier 4 userop CoT scaffold; introduces a base-opcode decomposition line, see §8.3) |
 | Newline | 1 | `NEWLINE` |
 | Special | 4 | `BOS EOS PAD ?` |
-| **Fixed total** | **43** | |
-| Reserved | 21 | Future opcodes; Tier 4 userop symbols (`DOUBLE MAX ABS MOD XOR` = 5 of 21) |
+| **Fixed total** | **44** | |
+| Reserved | 20 | Future opcodes; Tier 4 userop symbols (`DOUBLE MAX ABS MOD XOR` = 5 of 20) |
 
 ### 8.2 Encoding format
 
@@ -268,20 +329,37 @@ Integers are variable-length digit sequences terminated by the first non-digit t
 
 ### 8.3 Renderers
 
-All three operate over the same `(Program, ExecutionTrace)`:
+Five renderers in total. The first three consume `(Program, ExecutionTrace)`; the last two consume `UseropTrace` (§7.5) and serve Tier 4.
 
 **`render_direct(program, trace) → (input_tokens, target_tokens)`**
+- Tier 1 + Tier 2 condition 1 / 3 (no scaffolding).
 - input: `BOS` + program text + `EOS`
 - target: `BOS` + digit-encoded values from `trace.output`, `NEWLINE`-separated + `EOS`
 
 **`render_cot(program, trace, mode='full') → (input_tokens, target_tokens)`**
+- Tier 2 condition 2 / 4 (per-step register-file scaffolding).
 - input: `BOS` + program text + `EOS`
 - target: `BOS` + for each step `s`: instruction tokens for `program.instructions[trace.steps[s].pc]`, then the register-file printout `R0 EQUALS <digits> R1 EQUALS <digits> ... R7 EQUALS <digits> NEWLINE`; finally the output stream + `EOS`
-- `mode='full'` emits all 8 registers per step (default, matches parent §7.1 cond. 2). `mode='modified'` emits only registers changed at that step.
+- `mode='full'` emits all 8 registers per step (default, matches parent §7.1 cond. 2 literally). `mode='modified'` emits only registers changed at that step.
+
+*Note on `mode='modified'`.* This is a compute-saving extension to the parent doc's specification (which says "post-instruction register file", implying all 8). Experiments using `mode='modified'` are **not directly comparable** to a strict Tier 2 condition-2 setup — a small measured CoT gap under `mode='modified'` should not be reported as evidence that latent computation is occurring without external reasoning, because the model is doing less surface tracking. Headline numbers use `mode='full'`; `mode='modified'` is for long-trajectory ablations only.
 
 **`render_probe_query(program, trace, step_t) → (input_tokens, target_tokens)`**
+- Tier 3 in-band probe (the `?`-query at inference time).
 - input: `BOS` + program text up to and including instruction `t` + `?` + `EOS`
 - target: register-file printout at step `t`, same format as the CoT renderer's per-step state.
+
+**`render_userop_direct(utrace) → (input_tokens, target_tokens)`**
+- Tier 4 condition 1 (no scaffolding) — parent §9.2 condition (i) "Frozen Tier-2 model".
+- input: `BOS` + for each demo `(P_with_symbol, demo_trace)` in `utrace.demos_with_symbol` / `utrace.demos`: demo's program text (using userop symbol) + `NEWLINE` + digit-encoded demo output + `NEWLINE`; then `utrace.target_with_symbol` text + `EOS`.
+- target: `BOS` + digit-encoded values from `utrace.target_trace.output` + `EOS`.
+
+**`render_userop_with_decomposition(utrace) → (input_tokens, target_tokens)`**
+- Tier 4 condition 2 (decomposition scaffold) — parent §9.2 condition (ii) "Frozen Tier-2 model with chain-of-thought scaffolding in demonstrations, where each demonstration step is annotated with the equivalent base-opcode decomposition."
+- input: same as `render_userop_direct`, **except** that in each demo, every instruction line whose opcode is a userop symbol is immediately followed by a `DECOMP <base-opcode instruction tokens> NEWLINE` line carrying the decomposition. The target program (with userop symbol) is rendered **without** decomposition annotations — the model must apply the learned decomposition itself.
+- target: same as `render_userop_direct`.
+
+This is structurally distinct from `render_cot`: `render_cot` annotates each step with the *runtime register state*; `render_userop_with_decomposition` annotates each userop with its *base-opcode rewrite*. Conflating them would silently mis-supervise Tier 4.
 
 ### 8.4 Non-text probe mode
 
@@ -321,10 +399,10 @@ Five layers, runnable as a single `pytest` invocation:
 
 | Layer | What it checks | How |
 |---|---|---|
-| **Unit (interpreter)** | One semantic per test: clamping, DIV/0→0, JZ taken/not-taken, JMP, PUSH/POP, fall-off-end implicit HALT, step-cap raises, PUSH-overflow raises, POP-underflow raises | Hand-written 5–10 line programs, golden trace output |
+| **Unit (interpreter)** | One semantic per test: clamping, DIV/0→0, JZ taken/not-taken, JMP, PUSH/POP, fall-off-end implicit HALT, step-cap raises, PUSH-overflow raises, POP-underflow raises, USEROP-opcode raises | Hand-written 5–10 line programs, golden trace output |
 | **Unit (tokeniser)** | `decode(encode(p)) == p` on every legal IR; renderers produce well-formed token sequences | 1K generator outputs per generator config |
 | **Property (generators)** | For each generator at each tier's difficulty: `validate(p)` passes, interpreter terminates without raising, output stream is non-empty | 1K seeds per generator config |
-| **Distribution (sanity)** | Histograms aren't pathological: register-use counts, output-value distribution, control-flow-template mix, program-length distribution all within expected ranges | Numpy assertions on aggregate stats over 10K samples |
+| **Distribution (sanity)** | Histograms aren't pathological: register-use counts (uniform over active subset), output-value distribution, control-flow-template mix (loop shapes a/b/c roughly even; branch shape (c) at ~20%), `JZ`-predecessor-opcode distribution (not 100% comparators), stack-frame-depth distribution, program-length distribution — all within expected ranges | Numpy assertions on aggregate stats over 10K samples per generator config |
 | **Determinism** | Same seed → bit-exact program; different seeds → different programs | Pair-call structural comparison |
 
 The distribution layer catches *quiet* bugs that the others miss — a generator that "works" but only ever PRINTs values in `[0, 7]`, or always picks `R0` as the counter.
@@ -334,8 +412,8 @@ The distribution layer catches *quiet* bugs that the others miss — a generator
 | Risk | Mitigation |
 |---|---|
 | **Generator drift** introduces invalid programs that the interpreter then handles "permissively," leaking garbage supervision into a 200K dataset | `validate` runs at end of every generator call; the distribution layer flags drift early via histogram changes |
-| **Shortcut learning** on uniform surface patterns (one loop shape, modal output, length-correlated answer) | Multiple loop & branch templates (§7.2, §7.3); configurable shaping knobs (§7.5); Tier 2/3 detection (parent §15 Risk A) backstops |
-| **Vocab overflow** if future tiers need more opcode-like symbols than the 21-slot reserve allows | Reserve is sized for Tier 4's 5 userops + 16 of headroom; if exceeded, label encoding can switch to a more compact scheme without changing the rest |
+| **Shortcut learning** on uniform surface patterns (one loop shape, modal output, length-correlated answer, JZ-always-after-comparator) | Multiple loop, branch, and stack templates (§7.2–§7.4); arithmetic-zero-test branch template ensures JZ reads non-comparator results; per-program random active register subset (§7.1); configurable shaping knobs (§7.6); Tier 2/3 detection (parent §15 Risk A) backstops |
+| **Vocab overflow** if future tiers need more opcode-like symbols than the 20-slot reserve allows | Reserve fits Tier 4's 5 userops + 15 of headroom; if exceeded, label encoding can switch to a more compact scheme without changing the rest |
 | **CoT target length blows up the context window** at long trajectories | Configurable CoT mode (`full` vs `modified`); training code can pick per experiment |
 
 ## 12. Open questions deferred to implementation
