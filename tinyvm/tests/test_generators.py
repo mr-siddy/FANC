@@ -1,6 +1,6 @@
 import random
 from collections import Counter
-from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, _allocate_registers
+from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, gen_register_trace, _allocate_registers
 from tinyvm.interpreter import run
 from tinyvm.verifier import validate
 from tinyvm.isa import Op, Instruction, Program
@@ -106,3 +106,19 @@ def test_fill_block_excludes_reserved_registers():
         # Destination register must NOT be in reserved.
         if n_regs >= 1:
             assert inst.args[0] not in reserved
+
+
+def test_gen_register_trace_validates_and_outputs_one_value():
+    for seed in range(20):
+        for n in (8, 16, 32):
+            for k in (2, 4, 8):
+                p = gen_register_trace(n=n, k=k, rng=random.Random(seed))
+                assert validate(p)
+                trace = run(p)
+                assert len(trace.output) == 1
+
+
+def test_gen_register_trace_has_no_branches_or_loops():
+    p = gen_register_trace(n=32, k=4, rng=random.Random(0))
+    for inst in p.instructions:
+        assert inst.op not in (Op.JZ, Op.JMP)

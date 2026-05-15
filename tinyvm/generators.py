@@ -108,3 +108,26 @@ def _fill_block(
             args.append(rng.randint(LITERAL_MIN, LITERAL_MAX))
         insts.append(Instruction(op=op, args=tuple(args)))
     return insts
+
+
+def gen_register_trace(
+    n: int,
+    k: int,
+    rng: random.Random,
+    shaping: ShapingSpec | None = None,
+) -> Program:
+    """Tier 1 generator. Straight-line program of length n over k active regs."""
+    active = _allocate_registers(k=k, rng=rng)
+    body = _fill_block(n=n, active=active, rng=rng)
+    # Collect registers that are written to in the body.
+    written_regs = {inst.args[0] for inst in body if inst.op in _FILL_OPS}
+    # If no registers are written (shouldn't happen with n >= 1), fall back to active.
+    if written_regs:
+        print_target = rng.choice(list(written_regs))
+    else:
+        print_target = rng.choice(active)
+    insts: list[Instruction] = []
+    insts.extend(body)
+    insts.append(Instruction(Op.PRINT, args=(print_target,)))
+    insts.append(Instruction(Op.HALT))
+    return Program.build(tuple(insts))
