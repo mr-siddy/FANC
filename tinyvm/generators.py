@@ -1,7 +1,10 @@
 """Generators: build Tiny-VM programs by construction (spec §7)."""
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
+
+from tinyvm.isa import Op, Instruction, Program, LITERAL_MIN, LITERAL_MAX
 
 
 @dataclass(frozen=True)
@@ -23,3 +26,29 @@ class GenSpec:
     use_stack: bool = False
     stack_frames: int = 0
     shaping: ShapingSpec = field(default_factory=ShapingSpec)
+
+
+_COUNTER_OPS = [Op.ADD, Op.SUB, Op.NEG, Op.MOV]
+
+
+def gen_counter(n: int, rng: random.Random) -> Program:
+    """Tier 0 generator. n linear ops on R0, terminal PRINT R0, HALT.
+
+    Op set restricted to ADD/SUB/NEG/MOV (no MUL/DIV — clamping/0-div would
+    introduce non-trivial state effects that defeat the Tier 0 pipeline-sanity
+    purpose). Initial LOAD seeds R0 with a small literal.
+    """
+    insts: list[Instruction] = []
+    init_lit = rng.randint(LITERAL_MIN, LITERAL_MAX)
+    insts.append(Instruction(Op.LOAD, args=(0, init_lit)))
+    for _ in range(n - 1):
+        op = rng.choice(_COUNTER_OPS)
+        if op in (Op.ADD, Op.SUB):
+            insts.append(Instruction(op, args=(0, 0, 0)))
+        elif op == Op.NEG:
+            insts.append(Instruction(op, args=(0, 0)))
+        else:  # MOV
+            insts.append(Instruction(op, args=(0, 0)))
+    insts.append(Instruction(Op.PRINT, args=(0,)))
+    insts.append(Instruction(Op.HALT))
+    return Program.build(tuple(insts))

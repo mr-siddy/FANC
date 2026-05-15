@@ -1,4 +1,7 @@
-from tinyvm.generators import GenSpec, ShapingSpec
+import random
+from tinyvm.generators import GenSpec, ShapingSpec, gen_counter
+from tinyvm.interpreter import run
+from tinyvm.verifier import validate
 
 
 def test_shaping_spec_defaults_off():
@@ -17,3 +20,28 @@ def test_gen_spec_holds_axis_dials_and_shaping():
     assert s.n == 16 and s.k == 4 and s.b == 2 and s.l == 8
     assert s.use_stack is True and s.stack_frames == 1
     assert s.shaping.distractor_regs == 2
+
+
+def test_gen_counter_program_has_correct_length():
+    p = gen_counter(n=8, rng=random.Random(0))
+    # n linear ops + 1 PRINT + 1 HALT.
+    assert len(p.instructions) == 8 + 2
+
+
+def test_gen_counter_uses_only_r0():
+    p = gen_counter(n=8, rng=random.Random(0))
+    for inst in p.instructions:
+        for arg_idx, arg in enumerate(inst.args):
+            # For LOAD the second arg is a literal; for ADD/SUB/NEG/MOV args
+            # are register indices (except LOAD's second).
+            if inst.op.name == "LOAD" and arg_idx == 1:
+                continue
+            assert arg == 0, f"{inst.op.name} uses non-R0 register: {inst.args}"
+
+
+def test_gen_counter_property_validates_and_runs():
+    for seed in range(50):
+        p = gen_counter(n=8, rng=random.Random(seed))
+        assert validate(p)
+        trace = run(p)
+        assert len(trace.output) == 1
