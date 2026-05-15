@@ -306,6 +306,11 @@ def gen_branched(spec: GenSpec, rng: random.Random) -> Program:
     Active register subset is sampled per program; loop counters and stack
     spill registers are reserved within the active set.
     """
+    if spec.k < 2:
+        raise ValueError(
+            f"gen_branched requires spec.k >= 2 (needs at least one writable register "
+            f"plus r_one); got k={spec.k}. Tier 2 axis uses k in [2, 8]."
+        )
     active = _allocate_registers(k=spec.k, rng=rng)
     label_gen = _LabelGen()
 

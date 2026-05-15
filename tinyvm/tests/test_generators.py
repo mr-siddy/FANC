@@ -1,4 +1,5 @@
 import random
+import pytest
 from collections import Counter
 from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, gen_register_trace, _allocate_registers, _emit_branch_if, _emit_branch_ifelse, _emit_branch_arith_zero, _LabelGen
 from tinyvm.interpreter import run
@@ -16,6 +17,35 @@ def test_gen_branched_validates_at_tier2_difficulties():
         assert trace.halted
 
 
+def test_gen_branched_rejects_k_below_2():
+    spec = GenSpec(n=8, k=1, b=0, l=0)
+    with pytest.raises(ValueError, match="k >= 2"):
+        gen_branched(spec=spec, rng=random.Random(0))
+
+
+def test_gen_branched_validates_at_higher_k_exercises_countup():
+    """At k=6 the countup template becomes reachable; verify validate still passes."""
+    countup_seen = False
+    for seed in range(30):
+        spec = GenSpec(n=64, k=6, b=2, l=8, use_stack=False, stack_frames=0)
+        p = gen_branched(spec=spec, rng=random.Random(seed))
+        assert validate(p), f"seed={seed} failed validate"
+        trace = run(p)
+        assert trace.halted
+        # Detect countup via structural fingerprint: TWO consecutive LOAD instructions
+        # at a loop entrance (one for counter=0, one for r_k=K).
+        for i in range(len(p.instructions) - 1):
+            a, b = p.instructions[i], p.instructions[i + 1]
+            if a.op == Op.LOAD and b.op == Op.LOAD and a.args[1] == 0:
+                countup_seen = True
+                break
+        if countup_seen:
+            break
+    # If countup is selectable but never picked across 30 seeds, the random sampling
+    # is suspicious. Soft assertion: at least one program in 30 should hit it (probabilistically ~10/30).
+    assert countup_seen, "countup template not selected across 30 seeds at k=6"
+
+
 def test_gen_branched_emits_print_at_least_once():
     spec = GenSpec(n=32, k=4, b=1, l=0)
     p = gen_branched(spec=spec, rng=random.Random(0))
@@ -27,6 +57,9 @@ def test_gen_branched_with_stack_includes_push_pop():
     p = gen_branched(spec=spec, rng=random.Random(0))
     assert any(inst.op == Op.PUSH for inst in p.instructions)
     assert any(inst.op == Op.POP for inst in p.instructions)
+    assert validate(p), "stack-using program failed validate"
+    trace = run(p)
+    assert trace.halted, "stack-using program did not halt"
 
 
 def test_gen_branched_loop_budget_is_respected():
