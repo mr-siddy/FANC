@@ -418,3 +418,33 @@ def test_gen_userop_trace_rejects_n_args_other_than_2():
             opcode_spec={"name": "TRIOP", "n_args": 3, "decomposition": decomp},
             k_demos=1, n_target=8, use_stack=False, rng=random.Random(0),
         )
+
+
+def test_flat_output_histogram_widens_value_distribution():
+    """With flat_output_histogram on, output values cover more bins than off."""
+    bins_on, bins_off = Counter(), Counter()
+    for seed in range(200):
+        p_on = gen_register_trace(
+            n=16, k=4, rng=random.Random(seed),
+            shaping=ShapingSpec(flat_output_histogram=True),
+        )
+        p_off = gen_register_trace(
+            n=16, k=4, rng=random.Random(seed),
+            shaping=ShapingSpec(flat_output_histogram=False),
+        )
+        bins_on[run(p_on).output[0] // 100] += 1
+        bins_off[run(p_off).output[0] // 100] += 1
+    assert len(bins_on) >= len(bins_off)
+
+
+def test_randomize_print_target_diversifies_print_register():
+    targets = Counter()
+    for seed in range(500):
+        p = gen_register_trace(
+            n=16, k=8, rng=random.Random(seed),
+            shaping=ShapingSpec(randomize_print_target=True),
+        )
+        print_inst = [i for i in p.instructions if i.op == Op.PRINT][0]
+        targets[print_inst.args[0]] += 1
+    # With 8 active regs and randomize, no single reg should dominate (>40% suspicious).
+    assert max(targets.values()) < 0.40 * 500

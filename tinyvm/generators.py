@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from tinyvm.isa import Op, Instruction, Program, LITERAL_MIN, LITERAL_MAX, NUM_REGS
 from tinyvm.interpreter import ExecutionTrace, run
-from tinyvm.tokeniser import USEROP_SLOT_TO_SYMBOL, _OP_ARG_SCHEMA
+from collections import Counter
 
 
 @dataclass(frozen=True)
@@ -118,21 +118,46 @@ def gen_register_trace(
     rng: random.Random,
     shaping: ShapingSpec | None = None,
 ) -> Program:
-    """Tier 1 generator. Straight-line program of length n over k active regs."""
+    """Tier 1 generator (spec §7.5 row 2) with optional ShapingSpec knobs."""
+    shaping = shaping or ShapingSpec()
     active = _allocate_registers(k=k, rng=rng)
-    body = _fill_block(n=n, active=active, rng=rng)
-    # Collect registers that are written to in the body.
-    written_regs = {inst.args[0] for inst in body if inst.op in _FILL_OPS}
-    # If no registers are written (shouldn't happen with n >= 1), fall back to active.
-    if written_regs:
-        print_target = rng.choice(list(written_regs))
-    else:
-        print_target = rng.choice(active)
-    insts: list[Instruction] = []
-    insts.extend(body)
-    insts.append(Instruction(Op.PRINT, args=(print_target,)))
-    insts.append(Instruction(Op.HALT))
-    return Program.build(tuple(insts))
+    # Reserve `distractor_regs` slots that are written but excluded from print pool.
+    n_dist = min(shaping.distractor_regs, len(active) - 1) if shaping.distractor_regs else 0
+    distractors = set(active[:n_dist])
+
+    writes_one_reg = {
+        Op.LOAD, Op.MOV, Op.ADD, Op.SUB, Op.MUL, Op.DIV,
+        Op.NEG, Op.EQ, Op.LT, Op.POP,
+    }
+
+    attempts = 200 if shaping.flat_output_histogram else 1
+    last_program: Program | None = None
+    buckets: Counter = Counter()
+    for _ in range(attempts):
+        body = _fill_block(n=n, active=active, rng=rng)
+        written = [
+            inst.args[0] for inst in body
+            if inst.op in writes_one_reg and inst.args
+        ]
+        print_pool = [r for r in written if r not in distractors] or [r for r in active if r not in distractors] or active
+        if shaping.randomize_print_target:
+            target_reg = rng.choice(print_pool)
+        else:
+            # Conventional: PRINT the most-recently-written non-distractor register.
+            target_reg = next((r for r in reversed(written) if r not in distractors), print_pool[0])
+        insts = body + [Instruction(Op.PRINT, args=(target_reg,)), Instruction(Op.HALT)]
+        p = Program.build(tuple(insts))
+        last_program = p
+        if not shaping.flat_output_histogram:
+            return p
+        out_val = run(p).output[0]
+        bucket = out_val // 100
+        if rng.random() > min(1.0, 1.0 / (1 + buckets[bucket] / 10.0)):
+            buckets[bucket] += 1
+            continue
+        buckets[bucket] += 1
+        return p
+    return last_program  # last-resort fallback
 
 
 class _LabelGen:
@@ -526,6 +551,9 @@ def gen_userop_trace(
     a single userop per training run, so this is safe in practice — but it
     must be documented for future multi-userop work.
     """
+    # Deferred import to break circular dependency: tokeniser.py imports
+    # UseropTrace from generators.py at module level (end of file).
+    from tinyvm.tokeniser import USEROP_SLOT_TO_SYMBOL  # noqa: PLC0415
     name = opcode_spec["name"]
     n_args = opcode_spec["n_args"]
     decomp_template = opcode_spec["decomposition"]
@@ -616,6 +644,8 @@ def substitute_userops(
     placeholder. The substitute function inspects the per-opcode arg schema to
     distinguish register placeholders from literal args.
     """
+    # Deferred import to break circular dependency with tokeniser.py.
+    from tinyvm.tokeniser import USEROP_SLOT_TO_SYMBOL, _OP_ARG_SCHEMA  # noqa: PLC0415
     new_insts: list[Instruction] = []
     for inst in program.instructions:
         if not inst.op.is_userop():
