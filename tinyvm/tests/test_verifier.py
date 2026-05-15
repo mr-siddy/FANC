@@ -1,5 +1,7 @@
+import pytest
 from tinyvm.tokeniser import TOKEN_TO_ID, BOS, EOS, NEWLINE, DIGIT_TOKENS, MINUS
-from tinyvm.verifier import score_output
+from tinyvm.isa import Op, Instruction, Program
+from tinyvm.verifier import score_output, validate
 
 
 def _ids(*toks: str) -> list[int]:
@@ -28,3 +30,28 @@ def test_score_output_negative_values():
     a = _ids(BOS, MINUS, "5", NEWLINE, EOS)
     b = _ids(BOS, MINUS, "5", NEWLINE, EOS)
     assert score_output(a, b) == 1.0
+
+
+def test_validate_accepts_clean_program():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.ADD, args=(1, 0, 0)),
+        Instruction(Op.PRINT, args=(1,)),
+        Instruction(Op.HALT),
+    ))
+    assert validate(p) is True
+
+
+def test_validate_rejects_unknown_label_target():
+    p = Program.build((
+        Instruction(Op.JMP, args=(), target="UNKNOWN"),
+    ))
+    assert validate(p) is False
+
+
+def test_validate_rejects_wrong_opcode_arity():
+    # ADD requires 3 args; pass 2.
+    p = Program.build((
+        Instruction(Op.ADD, args=(0, 1)),
+    ))
+    assert validate(p) is False
