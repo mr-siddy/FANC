@@ -389,3 +389,47 @@ def render_userop_direct(utrace: UseropTrace) -> tuple[list[int], list[int]]:
         tgt_tokens.append(NEWLINE)
     tgt_tokens.append(EOS)
     return [TOKEN_TO_ID[t] for t in inp_tokens], [TOKEN_TO_ID[t] for t in tgt_tokens]
+
+
+def render_userop_with_decomposition(utrace: UseropTrace) -> tuple[list[int], list[int]]:
+    """Spec §8.3, Tier 4 condition 2. Demos carry DECOMP lines after each userop.
+
+    For each demo instruction whose op is a userop, emit the instruction followed
+    by `DECOMP` + the base-opcode template (with placeholder indices remapped to
+    the concrete register operands) + NEWLINE. The target program is rendered
+    without DECOMP annotations.
+    """
+    inp_tokens: list[str] = [BOS]
+    for pair in utrace.demos:
+        for inst in pair.with_symbol.instructions:
+            inp_tokens.extend(_encode_instruction(inst))
+            if inst.op.is_userop():
+                sym = USEROP_SLOT_TO_SYMBOL[inst.op]
+                template = utrace.decomposition[sym]
+                inp_tokens.append(DECOMP)
+                for t_inst in template:
+                    # Remap placeholder indices to concrete register indices.
+                    n_regs, n_lits, _has_target = _OP_ARG_SCHEMA[t_inst.op]
+                    mapped: list[int] = []
+                    for k in range(n_regs):
+                        mapped.append(inst.args[t_inst.args[k]])
+                    for k in range(n_lits):
+                        mapped.append(t_inst.args[n_regs + k])
+                    concrete = Instruction(
+                        op=t_inst.op, args=tuple(mapped), target=t_inst.target,
+                    )
+                    inp_tokens.extend(_encode_instruction(concrete))
+        for v in pair.trace.output:
+            inp_tokens.extend(_digits_of(v))
+            inp_tokens.append(NEWLINE)
+    # Target — no decomposition annotations.
+    for inst in utrace.target.with_symbol.instructions:
+        inp_tokens.extend(_encode_instruction(inst))
+    inp_tokens.append(EOS)
+    # Target supervision.
+    tgt_tokens: list[str] = [BOS]
+    for v in utrace.target.trace.output:
+        tgt_tokens.extend(_digits_of(v))
+        tgt_tokens.append(NEWLINE)
+    tgt_tokens.append(EOS)
+    return [TOKEN_TO_ID[t] for t in inp_tokens], [TOKEN_TO_ID[t] for t in tgt_tokens]

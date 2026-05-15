@@ -280,3 +280,36 @@ def test_render_userop_direct_has_no_decomp_tokens():
     inp, _ = render_userop_direct(ut)
     inp_toks = [ID_TO_TOKEN[i] for i in inp]
     assert DECOMP not in inp_toks   # this is the *no-scaffold* condition
+
+
+from tinyvm.tokeniser import render_userop_with_decomposition
+
+
+def test_render_userop_with_decomposition_emits_decomp_lines_in_demos():
+    decomp = [Instruction(Op.ADD, args=(0, 1, 1))]
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": decomp},
+        k_demos=1, n_target=6, use_stack=False, rng=random.Random(0),
+    )
+    inp, _ = render_userop_with_decomposition(ut)
+    inp_toks = [ID_TO_TOKEN[i] for i in inp]
+    # At least one DECOMP token per userop call in demos.
+    n_demo_userops = sum(
+        1 for inst in ut.demos[0].with_symbol.instructions if inst.op.is_userop()
+    )
+    assert inp_toks.count(DECOMP) == n_demo_userops
+
+
+def test_render_userop_with_decomposition_target_has_no_decomp():
+    """The TARGET portion (after demos) must NOT carry decomposition annotations."""
+    decomp = [Instruction(Op.ADD, args=(0, 1, 1))]
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": decomp},
+        k_demos=1, n_target=6, use_stack=False, rng=random.Random(0),
+    )
+    inp, _ = render_userop_with_decomposition(ut)
+    inp_toks = [ID_TO_TOKEN[i] for i in inp]
+    n_demo_userops = sum(
+        1 for inst in ut.demos[0].with_symbol.instructions if inst.op.is_userop()
+    )
+    assert inp_toks.count(DECOMP) == n_demo_userops
