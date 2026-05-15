@@ -313,3 +313,29 @@ def test_stack_nested_round_trips_in_lifo_order():
     # LIFO: first POP gets R1's saved value (7), second POP gets R0's (5).
     assert trace.steps[-1].regs[3] == 7
     assert trace.steps[-1].regs[2] == 5
+
+
+def test_userop_pair_holds_with_symbol_base_and_trace():
+    from tinyvm.generators import UseropPair
+    p_sym = Program.build((Instruction(Op.USEROP_0, args=(1, 0)),))
+    p_base = Program.build((Instruction(Op.ADD, args=(1, 0, 0)),))
+    trace = run(p_base)
+    pair = UseropPair(with_symbol=p_sym, base=p_base, trace=trace)
+    assert pair.with_symbol is p_sym
+    assert pair.base is p_base
+    assert pair.trace is trace
+
+
+def test_userop_trace_holds_demos_and_target():
+    from tinyvm.generators import UseropPair, UseropTrace
+    p_sym = Program.build((Instruction(Op.USEROP_0, args=(1, 0)), Instruction(Op.HALT)))
+    p_base = Program.build((Instruction(Op.ADD, args=(1, 0, 0)), Instruction(Op.HALT)))
+    trace = run(p_base)
+    pair = UseropPair(with_symbol=p_sym, base=p_base, trace=trace)
+    ut = UseropTrace(
+        decomposition={"DOUBLE": [Instruction(Op.ADD, args=(1, 0, 0))]},
+        demos=[pair],
+        target=pair,
+    )
+    assert ut.demos[0] is pair
+    assert ut.target is pair

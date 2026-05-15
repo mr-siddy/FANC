@@ -5,6 +5,7 @@ import random
 from dataclasses import dataclass, field
 
 from tinyvm.isa import Op, Instruction, Program, LITERAL_MIN, LITERAL_MAX, NUM_REGS
+from tinyvm.interpreter import ExecutionTrace
 
 
 @dataclass(frozen=True)
@@ -465,3 +466,19 @@ def _split_budget(total: int, n_parts: int, rng: random.Random) -> list[int]:
     cuts = sorted(rng.sample(range(1, total), n_parts - 1))
     parts = [cuts[0]] + [cuts[i] - cuts[i - 1] for i in range(1, n_parts - 1)] + [total - cuts[-1]]
     return parts
+
+
+@dataclass(frozen=True)
+class UseropPair:
+    """Spec §7.5. with_symbol = surface; base = decomposition-substituted; trace = run(base)."""
+    with_symbol: Program
+    base: Program
+    trace: ExecutionTrace
+
+
+@dataclass(frozen=True)
+class UseropTrace:
+    """Spec §7.5 return type of gen_userop_trace."""
+    decomposition: dict[str, list[Instruction]]
+    demos: list[UseropPair]
+    target: UseropPair
