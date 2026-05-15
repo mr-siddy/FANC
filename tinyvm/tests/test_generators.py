@@ -1,0 +1,450 @@
+import random
+import pytest
+from collections import Counter
+from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, gen_register_trace, _allocate_registers, _emit_branch_if, _emit_branch_ifelse, _emit_branch_arith_zero, _LabelGen
+from tinyvm.interpreter import run
+from tinyvm.verifier import validate
+from tinyvm.isa import Op, Instruction, Program
+from tinyvm.generators import gen_branched, UseropPair
+
+
+def test_gen_branched_validates_at_tier2_difficulties():
+    for seed in range(20):
+        spec = GenSpec(n=64, k=4, b=2, l=8, use_stack=False, stack_frames=0)
+        p = gen_branched(spec=spec, rng=random.Random(seed))
+        assert validate(p), f"seed={seed} failed validate"
+        trace = run(p)
+        assert trace.halted
+
+
+def test_gen_branched_rejects_k_below_2():
+    spec = GenSpec(n=8, k=1, b=0, l=0)
+    with pytest.raises(ValueError, match="k >= 2"):
+        gen_branched(spec=spec, rng=random.Random(0))
+
+
+def test_gen_branched_validates_at_higher_k_exercises_countup():
+    """At k=6 the countup template becomes reachable; verify validate still passes."""
+    countup_seen = False
+    for seed in range(30):
+        spec = GenSpec(n=64, k=6, b=2, l=8, use_stack=False, stack_frames=0)
+        p = gen_branched(spec=spec, rng=random.Random(seed))
+        assert validate(p), f"seed={seed} failed validate"
+        trace = run(p)
+        assert trace.halted
+        # Detect countup via structural fingerprint: TWO consecutive LOAD instructions
+        # at a loop entrance (one for counter=0, one for r_k=K).
+        for i in range(len(p.instructions) - 1):
+            a, b = p.instructions[i], p.instructions[i + 1]
+            if a.op == Op.LOAD and b.op == Op.LOAD and a.args[1] == 0:
+                countup_seen = True
+                break
+        if countup_seen:
+            break
+    # If countup is selectable but never picked across 30 seeds, the random sampling
+    # is suspicious. Soft assertion: at least one program in 30 should hit it (probabilistically ~10/30).
+    assert countup_seen, "countup template not selected across 30 seeds at k=6"
+
+
+def test_gen_branched_emits_print_at_least_once():
+    spec = GenSpec(n=32, k=4, b=1, l=0)
+    p = gen_branched(spec=spec, rng=random.Random(0))
+    assert any(inst.op == Op.PRINT for inst in p.instructions)
+
+
+def test_gen_branched_with_stack_includes_push_pop():
+    spec = GenSpec(n=32, k=6, b=1, l=0, use_stack=True, stack_frames=1)
+    p = gen_branched(spec=spec, rng=random.Random(0))
+    assert any(inst.op == Op.PUSH for inst in p.instructions)
+    assert any(inst.op == Op.POP for inst in p.instructions)
+    assert validate(p), "stack-using program failed validate"
+    trace = run(p)
+    assert trace.halted, "stack-using program did not halt"
+
+
+def test_gen_branched_loop_budget_is_respected():
+    spec = GenSpec(n=64, k=4, b=0, l=8)
+    p = gen_branched(spec=spec, rng=random.Random(0))
+    trace = run(p)
+    # Dynamic step count ≤ static length × (1 + l per static instr) is a loose
+    # upper bound; tighter bound is harder without exposing K values.
+    assert len(trace.steps) <= len(p.instructions) * (1 + spec.l)
+
+
+def test_shaping_spec_defaults_off():
+    s = ShapingSpec()
+    assert s.flat_output_histogram is False
+    assert s.distractor_regs == 0
+    assert s.randomize_print_target is False
+    assert s.decorrelate_length is False
+
+
+def test_gen_spec_holds_axis_dials_and_shaping():
+    s = GenSpec(
+        n=16, k=4, b=2, l=8, use_stack=True, stack_frames=1,
+        shaping=ShapingSpec(distractor_regs=2),
+    )
+    assert s.n == 16 and s.k == 4 and s.b == 2 and s.l == 8
+    assert s.use_stack is True and s.stack_frames == 1
+    assert s.shaping.distractor_regs == 2
+
+
+def test_gen_counter_program_has_correct_length():
+    p = gen_counter(n=8, rng=random.Random(0))
+    # n linear ops + 1 PRINT + 1 HALT.
+    assert len(p.instructions) == 8 + 2
+
+
+def test_gen_counter_uses_only_r0():
+    p = gen_counter(n=8, rng=random.Random(0))
+    for inst in p.instructions:
+        for arg_idx, arg in enumerate(inst.args):
+            # For LOAD the second arg is a literal; for ADD/SUB/NEG/MOV args
+            # are register indices (except LOAD's second).
+            if inst.op.name == "LOAD" and arg_idx == 1:
+                continue
+            assert arg == 0, f"{inst.op.name} uses non-R0 register: {inst.args}"
+
+
+def test_gen_counter_property_validates_and_runs():
+    for seed in range(50):
+        p = gen_counter(n=8, rng=random.Random(seed))
+        assert validate(p)
+        trace = run(p)
+        assert len(trace.output) == 1
+
+
+def test_allocate_returns_k_distinct_registers():
+    rng = random.Random(0)
+    active = _allocate_registers(k=4, rng=rng)
+    assert len(active) == 4
+    assert len(set(active)) == 4
+    assert all(0 <= r < 8 for r in active)
+
+
+def test_allocate_is_uniformly_random_across_seeds():
+    counts = Counter()
+    for seed in range(2000):
+        rng = random.Random(seed)
+        for r in _allocate_registers(k=4, rng=rng):
+            counts[r] += 1
+    # Expected ~1000 occurrences per register if uniform; allow ±30%.
+    for r in range(8):
+        assert 700 < counts[r] < 1300, f"R{r}: {counts[r]} (non-uniform)"
+
+
+_OP_SCHEMA_FOR_FILL = {
+    # Mirror of tokeniser._OP_ARG_SCHEMA for the ops fill_block can emit.
+    Op.LOAD: (1, 1, False),
+    Op.MOV: (2, 0, False),
+    Op.ADD: (3, 0, False),
+    Op.SUB: (3, 0, False),
+    Op.MUL: (3, 0, False),
+    Op.DIV: (3, 0, False),
+    Op.NEG: (2, 0, False),
+    Op.EQ: (3, 0, False),
+    Op.LT: (3, 0, False),
+}
+
+
+def test_fill_block_produces_n_instructions_all_in_active_set():
+    from tinyvm.generators import _fill_block
+
+    active = [1, 3, 5, 7]
+    insts = _fill_block(n=10, active=active, rng=random.Random(0))
+    assert len(insts) == 10
+    for inst in insts:
+        # All register args must be in active.
+        n_regs, n_lits, _has_target = _OP_SCHEMA_FOR_FILL[inst.op]
+        for ri in inst.args[:n_regs]:
+            assert ri in active, f"{inst.op.name} uses non-active reg {ri}"
+
+
+def test_fill_block_excludes_reserved_registers():
+    from tinyvm.generators import _fill_block
+
+    active = [0, 1, 2]
+    reserved = {1}
+    insts = _fill_block(n=20, active=active, rng=random.Random(0), exclude=reserved)
+    for inst in insts:
+        n_regs, _, _ = _OP_SCHEMA_FOR_FILL[inst.op]
+        # Destination register must NOT be in reserved.
+        if n_regs >= 1:
+            assert inst.args[0] not in reserved
+
+
+def test_gen_register_trace_validates_and_outputs_one_value():
+    for seed in range(20):
+        for n in (8, 16, 32):
+            for k in (2, 4, 8):
+                p = gen_register_trace(n=n, k=k, rng=random.Random(seed))
+                assert validate(p)
+                trace = run(p)
+                assert len(trace.output) == 1
+
+
+def test_gen_register_trace_has_no_branches_or_loops():
+    p = gen_register_trace(n=32, k=4, rng=random.Random(0))
+    for inst in p.instructions:
+        assert inst.op not in (Op.JZ, Op.JMP)
+
+
+def test_loop_countdown_terminates_after_k_iterations():
+    from tinyvm.generators import _emit_loop_countdown, _LabelGen
+
+    label_gen = _LabelGen()
+    counter, r_one = 0, 1
+    body = [Instruction(Op.ADD, args=(2, 2, 2))]  # arbitrary body
+    insts = _emit_loop_countdown(
+        counter=counter, r_one=r_one, k=3, body=body, label_gen=label_gen,
+    )
+    prologue = [Instruction(Op.LOAD, args=(r_one, 1))]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    final_regs = trace.steps[-1].regs
+    assert final_regs[counter] == 0
+
+
+def test_loop_countup_executes_k_iterations():
+    from tinyvm.generators import _emit_loop_countup, _LabelGen
+
+    label_gen = _LabelGen()
+    insts = _emit_loop_countup(
+        counter=0, r_k=1, r_diff=2, r_one=3, k=4,
+        body=[Instruction(Op.ADD, args=(4, 4, 3))],
+        label_gen=label_gen,
+    )
+    prologue = [Instruction(Op.LOAD, args=(3, 1))]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[4] == 4
+
+
+def test_loop_test_at_top_zero_iterations_skips_body():
+    from tinyvm.generators import _emit_loop_test_at_top, _LabelGen
+
+    label_gen = _LabelGen()
+    insts = _emit_loop_test_at_top(
+        counter=0, r_one=1, k=0,
+        body=[Instruction(Op.ADD, args=(2, 2, 1))],
+        label_gen=label_gen,
+    )
+    prologue = [Instruction(Op.LOAD, args=(1, 1))]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[2] == 0
+
+
+def test_branch_if_executes_body_on_nonzero_condition():
+    label_gen = _LabelGen()
+    insts = _emit_branch_if(
+        cmp_op=Op.LT, ri=0, rj=1, rc=2,
+        then_block=[Instruction(Op.LOAD, args=(3, 99))],
+        label_gen=label_gen,
+    )
+    prologue = [
+        Instruction(Op.LOAD, args=(0, 1)),    # Ri=1
+        Instruction(Op.LOAD, args=(1, 5)),    # Rj=5 -> Ri<Rj true -> Rc=1
+    ]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[3] == 99
+
+
+def test_branch_ifelse_executes_correct_arm():
+    label_gen = _LabelGen()
+    insts = _emit_branch_ifelse(
+        cmp_op=Op.LT, ri=0, rj=1, rc=2,
+        then_block=[Instruction(Op.LOAD, args=(3, 1))],
+        else_block=[Instruction(Op.LOAD, args=(3, 2))],
+        label_gen=label_gen,
+    )
+    prologue = [
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 1)),
+    ]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[3] == 2
+
+
+def test_branch_arith_zero_uses_sub_to_produce_zero():
+    label_gen = _LabelGen()
+    insts = _emit_branch_arith_zero(
+        arith_op=Op.SUB, ri=0, rj=1, rc=2,
+        then_block=[Instruction(Op.LOAD, args=(3, 7))],
+        label_gen=label_gen,
+    )
+    prologue = [
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 5)),
+    ]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[3] == 0  # then_block did not execute
+
+
+def test_stack_pair_round_trips_value():
+    from tinyvm.generators import _emit_stack_pair
+
+    insts = _emit_stack_pair(
+        save=0, load_back=1,
+        body=[Instruction(Op.LOAD, args=(0, 99))],  # clobber R0
+    )
+    prologue = [Instruction(Op.LOAD, args=(0, 42))]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[1] == 42
+
+
+def test_stack_nested_round_trips_in_lifo_order():
+    from tinyvm.generators import _emit_stack_nested
+
+    insts = _emit_stack_nested(
+        saves=[0, 1], pops=[3, 2],
+        body=[Instruction(Op.LOAD, args=(0, 0)), Instruction(Op.LOAD, args=(1, 0))],
+    )
+    prologue = [
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 7)),
+    ]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    # LIFO: first POP gets R1's saved value (7), second POP gets R0's (5).
+    assert trace.steps[-1].regs[3] == 7
+    assert trace.steps[-1].regs[2] == 5
+
+
+def test_userop_pair_holds_with_symbol_base_and_trace():
+    from tinyvm.generators import UseropPair
+    p_sym = Program.build((Instruction(Op.USEROP_0, args=(1, 0)),))
+    p_base = Program.build((Instruction(Op.ADD, args=(1, 0, 0)),))
+    trace = run(p_base)
+    pair = UseropPair(with_symbol=p_sym, base=p_base, trace=trace)
+    assert pair.with_symbol is p_sym
+    assert pair.base is p_base
+    assert pair.trace is trace
+
+
+def test_userop_trace_holds_demos_and_target():
+    from tinyvm.generators import UseropPair, UseropTrace
+    p_sym = Program.build((Instruction(Op.USEROP_0, args=(1, 0)), Instruction(Op.HALT)))
+    p_base = Program.build((Instruction(Op.ADD, args=(1, 0, 0)), Instruction(Op.HALT)))
+    trace = run(p_base)
+    pair = UseropPair(with_symbol=p_sym, base=p_base, trace=trace)
+    ut = UseropTrace(
+        decomposition={"DOUBLE": [Instruction(Op.ADD, args=(1, 0, 0))]},
+        demos=[pair],
+        target=pair,
+    )
+    assert ut.demos[0] is pair
+    assert ut.target is pair
+
+
+from tinyvm.generators import substitute_userops, DEFAULT_USEROP_BINDINGS
+
+
+def test_substitute_replaces_userop_with_base_sequence():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 3)),
+        Instruction(Op.USEROP_0, args=(1, 0)),   # DOUBLE R1 R0 (dst=R1, src=R0)
+        Instruction(Op.PRINT, args=(1,)),
+        Instruction(Op.HALT),
+    ))
+    # Decomposition: ADD dst src src, expressed with placeholder indices.
+    # Userop arg position 0 = dst, position 1 = src.
+    decomp = {"DOUBLE": [Instruction(Op.ADD, args=(0, 1, 1))]}
+    p_base = substitute_userops(p, decomp)
+    trace = run(p_base)
+    assert trace.output == [6]
+
+
+from tinyvm.generators import gen_userop_trace
+
+
+# Decomposition uses placeholder indices: arg slot 0 = destination, 1 = source.
+# DOUBLE Ri Rj is encoded as USEROP_0(args=(i, j)), and the decomposition
+# template is `ADD Rdst Rsrc Rsrc` -> Instruction(Op.ADD, args=(0, 1, 1)).
+DOUBLE_DECOMP = [Instruction(Op.ADD, args=(0, 1, 1))]
+
+
+def test_gen_userop_trace_returns_userop_trace_with_demos_and_target():
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": DOUBLE_DECOMP},
+        k_demos=2,
+        n_target=8,
+        use_stack=False,
+        rng=random.Random(0),
+    )
+    assert len(ut.demos) == 2
+    assert isinstance(ut.target, UseropPair)
+    assert "DOUBLE" in ut.decomposition
+
+
+def test_gen_userop_trace_target_trace_outputs_substitution_result():
+    """target.trace should equal run(substitute_userops(target.with_symbol, decomposition))."""
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": DOUBLE_DECOMP},
+        k_demos=1,
+        n_target=8,
+        use_stack=False,
+        rng=random.Random(0),
+    )
+    expected_base = substitute_userops(ut.target.with_symbol, ut.decomposition)
+    expected_trace = run(expected_base)
+    assert ut.target.trace.output == expected_trace.output
+
+
+def test_gen_userop_trace_with_stack_smoke():
+    """use_stack=True path: verify the demo + target trace round-trip with stack ops present."""
+    decomp = [Instruction(Op.ADD, args=(0, 1, 1))]
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": decomp},
+        k_demos=1, n_target=12, use_stack=True, rng=random.Random(0),
+    )
+    # Stack ops should appear in the target's base program.
+    has_push = any(inst.op == Op.PUSH for inst in ut.target.base.instructions)
+    has_pop = any(inst.op == Op.POP for inst in ut.target.base.instructions)
+    assert has_push and has_pop, "use_stack=True did not produce PUSH/POP"
+    # Re-running the base substitution should yield the same output.
+    expected = run(substitute_userops(ut.target.with_symbol, ut.decomposition))
+    assert ut.target.trace.output == expected.output
+
+
+def test_gen_userop_trace_rejects_n_args_other_than_2():
+    decomp = [Instruction(Op.ADD, args=(0, 1, 2))]
+    with pytest.raises(ValueError, match="2-arg userops"):
+        gen_userop_trace(
+            opcode_spec={"name": "TRIOP", "n_args": 3, "decomposition": decomp},
+            k_demos=1, n_target=8, use_stack=False, rng=random.Random(0),
+        )
+
+
+def test_flat_output_histogram_widens_value_distribution():
+    """With flat_output_histogram on, output values cover more bins than off."""
+    bins_on, bins_off = Counter(), Counter()
+    for seed in range(200):
+        p_on = gen_register_trace(
+            n=16, k=4, rng=random.Random(seed),
+            shaping=ShapingSpec(flat_output_histogram=True),
+        )
+        p_off = gen_register_trace(
+            n=16, k=4, rng=random.Random(seed),
+            shaping=ShapingSpec(flat_output_histogram=False),
+        )
+        bins_on[run(p_on).output[0] // 100] += 1
+        bins_off[run(p_off).output[0] // 100] += 1
+    assert len(bins_on) >= len(bins_off)
+
+
+def test_randomize_print_target_diversifies_print_register():
+    targets = Counter()
+    for seed in range(500):
+        p = gen_register_trace(
+            n=16, k=8, rng=random.Random(seed),
+            shaping=ShapingSpec(randomize_print_target=True),
+        )
+        print_inst = [i for i in p.instructions if i.op == Op.PRINT][0]
+        targets[print_inst.args[0]] += 1
+    # With 8 active regs and randomize, no single reg should dominate (>40% suspicious).
+    assert max(targets.values()) < 0.40 * 500
