@@ -5,7 +5,7 @@ from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, gen_register_tr
 from tinyvm.interpreter import run
 from tinyvm.verifier import validate
 from tinyvm.isa import Op, Instruction, Program
-from tinyvm.generators import gen_branched
+from tinyvm.generators import gen_branched, UseropPair
 
 
 def test_gen_branched_validates_at_tier2_difficulties():
@@ -357,3 +357,39 @@ def test_substitute_replaces_userop_with_base_sequence():
     p_base = substitute_userops(p, decomp)
     trace = run(p_base)
     assert trace.output == [6]
+
+
+from tinyvm.generators import gen_userop_trace
+
+
+# Decomposition uses placeholder indices: arg slot 0 = destination, 1 = source.
+# DOUBLE Ri Rj is encoded as USEROP_0(args=(i, j)), and the decomposition
+# template is `ADD Rdst Rsrc Rsrc` -> Instruction(Op.ADD, args=(0, 1, 1)).
+DOUBLE_DECOMP = [Instruction(Op.ADD, args=(0, 1, 1))]
+
+
+def test_gen_userop_trace_returns_userop_trace_with_demos_and_target():
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": DOUBLE_DECOMP},
+        k_demos=2,
+        n_target=8,
+        use_stack=False,
+        rng=random.Random(0),
+    )
+    assert len(ut.demos) == 2
+    assert isinstance(ut.target, UseropPair)
+    assert "DOUBLE" in ut.decomposition
+
+
+def test_gen_userop_trace_target_trace_outputs_substitution_result():
+    """target.trace should equal run(substitute_userops(target.with_symbol, decomposition))."""
+    ut = gen_userop_trace(
+        opcode_spec={"name": "DOUBLE", "n_args": 2, "decomposition": DOUBLE_DECOMP},
+        k_demos=1,
+        n_target=8,
+        use_stack=False,
+        rng=random.Random(0),
+    )
+    expected_base = substitute_userops(ut.target.with_symbol, ut.decomposition)
+    expected_trace = run(expected_base)
+    assert ut.target.trace.output == expected_trace.output

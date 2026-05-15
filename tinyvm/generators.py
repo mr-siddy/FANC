@@ -5,7 +5,7 @@ import random
 from dataclasses import dataclass, field
 
 from tinyvm.isa import Op, Instruction, Program, LITERAL_MIN, LITERAL_MAX, NUM_REGS
-from tinyvm.interpreter import ExecutionTrace
+from tinyvm.interpreter import ExecutionTrace, run
 from tinyvm.tokeniser import USEROP_SLOT_TO_SYMBOL, _OP_ARG_SCHEMA
 
 
@@ -496,6 +496,85 @@ DEFAULT_USEROP_BINDINGS: dict[str, dict[str, object]] = {
     "MOD":    {"slot": Op.USEROP_3, "n_args": 3, "writes": {0}},
     "SIGN":   {"slot": Op.USEROP_4, "n_args": 2, "writes": {0}},
 }
+
+
+def gen_userop_trace(
+    opcode_spec: dict,
+    k_demos: int,
+    n_target: int,
+    use_stack: bool,
+    rng: random.Random,
+) -> UseropTrace:
+    """Tier 4 generator (spec §7.5 last row).
+
+    opcode_spec: {"name": str, "n_args": int, "decomposition": list[Instruction]}
+    Decomposition uses positional arg-slot indices (0..n_args-1) as register
+    placeholders (see substitute_userops, Task 33).
+
+    Strategy: bind the userop to USEROP_0; generate k_demos branched programs
+    that include a call to the userop, plus one target program. Each program
+    is realised in two forms: with_symbol (uses USEROP_0) and base (substituted).
+    """
+    name = opcode_spec["name"]
+    n_args = opcode_spec["n_args"]
+    decomp_template = opcode_spec["decomposition"]
+    decomposition = {name: decomp_template}
+    # Bind this userop to USEROP_0 for surface-token rendering.
+    USEROP_SLOT_TO_SYMBOL[Op.USEROP_0] = name
+
+    def _gen_one(n: int, rng_local: random.Random) -> UseropPair:
+        # Generate a base program structurally and then *inject* one userop call.
+        base_spec = GenSpec(
+            n=max(n - n_args, 4),
+            k=max(n_args, 2),
+            b=0,
+            l=0,
+            use_stack=use_stack,
+            stack_frames=1 if use_stack else 0,
+        )
+        p_skel = gen_branched(spec=base_spec, rng=rng_local)
+        # Collect registers written by writing ops in the skeleton (not just first args).
+        writes_one_reg = {
+            Op.LOAD, Op.MOV, Op.ADD, Op.SUB, Op.MUL, Op.DIV,
+            Op.NEG, Op.EQ, Op.LT, Op.POP,
+        }
+        written_regs = [
+            inst.args[0]
+            for inst in p_skel.instructions
+            if inst.op in writes_one_reg and inst.args
+        ]
+        # Deduplicate while preserving order, then take first n_args.
+        seen: set[int] = set()
+        unique_written: list[int] = []
+        for r in written_regs:
+            if r not in seen:
+                seen.add(r)
+                unique_written.append(r)
+        active = unique_written[:n_args]
+        # Pad with random registers if not enough written regs (rare edge case).
+        while len(active) < n_args:
+            r = rng_local.randint(0, NUM_REGS - 1)
+            if r not in seen:
+                seen.add(r)
+                active.append(r)
+        insts = list(p_skel.instructions)
+        # Find PRINT index.
+        print_idx = next(i for i, inst in enumerate(insts) if inst.op == Op.PRINT)
+        userop_inst = Instruction(Op.USEROP_0, args=tuple(active[:n_args]))
+        # Re-target PRINT to the destination of the userop.
+        insts[print_idx] = Instruction(Op.PRINT, args=(active[0],))
+        insts.insert(print_idx, userop_inst)
+        p_with_symbol = Program.build(tuple(insts))
+        p_base = substitute_userops(p_with_symbol, decomposition)
+        trace = run(p_base)
+        return UseropPair(with_symbol=p_with_symbol, base=p_base, trace=trace)
+
+    demos = [
+        _gen_one(n=8 + rng.randint(0, 4), rng_local=random.Random(rng.random()))
+        for _ in range(k_demos)
+    ]
+    target = _gen_one(n=n_target, rng_local=random.Random(rng.random()))
+    return UseropTrace(decomposition=decomposition, demos=demos, target=target)
 
 
 def substitute_userops(
