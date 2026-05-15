@@ -218,3 +218,57 @@ def _emit_loop_test_at_top(
     insts.append(Instruction(Op.JMP, args=(), target=l_top))
     insts.append(Instruction(Op.NOP, label=l_done))
     return insts
+
+
+def _emit_branch_if(
+    cmp_op: Op, ri: int, rj: int, rc: int,
+    then_block: list[Instruction], label_gen: _LabelGen,
+) -> list[Instruction]:
+    """Spec §7.3(a). cmp_op in {Op.LT, Op.EQ}."""
+    l_after = label_gen.fresh()
+    insts: list[Instruction] = [
+        Instruction(cmp_op, args=(rc, ri, rj)),
+        Instruction(Op.JZ, args=(rc,), target=l_after),
+    ]
+    insts.extend(then_block)
+    insts.append(Instruction(Op.NOP, label=l_after))
+    return insts
+
+
+def _emit_branch_ifelse(
+    cmp_op: Op, ri: int, rj: int, rc: int,
+    then_block: list[Instruction], else_block: list[Instruction],
+    label_gen: _LabelGen,
+) -> list[Instruction]:
+    """Spec §7.3(b)."""
+    l_else = label_gen.fresh()
+    l_after = label_gen.fresh()
+    insts: list[Instruction] = [
+        Instruction(cmp_op, args=(rc, ri, rj)),
+        Instruction(Op.JZ, args=(rc,), target=l_else),
+    ]
+    insts.extend(then_block)
+    insts.append(Instruction(Op.JMP, args=(), target=l_after))
+    if else_block:
+        insts.append(_with_label(else_block[0], l_else))
+        insts.extend(else_block[1:])
+    else:
+        insts.append(Instruction(Op.NOP, label=l_else))
+    insts.append(Instruction(Op.NOP, label=l_after))
+    return insts
+
+
+def _emit_branch_arith_zero(
+    arith_op: Op, ri: int, rj: int, rc: int,
+    then_block: list[Instruction], label_gen: _LabelGen,
+) -> list[Instruction]:
+    """Spec §7.3(c). arith_op in {ADD, SUB, MUL, MOV}."""
+    l_after = label_gen.fresh()
+    if arith_op == Op.MOV:
+        insts: list[Instruction] = [Instruction(Op.MOV, args=(rc, rj))]
+    else:
+        insts = [Instruction(arith_op, args=(rc, ri, rj))]
+    insts.append(Instruction(Op.JZ, args=(rc,), target=l_after))
+    insts.extend(then_block)
+    insts.append(Instruction(Op.NOP, label=l_after))
+    return insts

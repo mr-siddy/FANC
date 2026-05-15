@@ -1,6 +1,6 @@
 import random
 from collections import Counter
-from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, gen_register_trace, _allocate_registers
+from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, gen_register_trace, _allocate_registers, _emit_branch_if, _emit_branch_ifelse, _emit_branch_arith_zero, _LabelGen
 from tinyvm.interpreter import run
 from tinyvm.verifier import validate
 from tinyvm.isa import Op, Instruction, Program
@@ -168,3 +168,52 @@ def test_loop_test_at_top_zero_iterations_skips_body():
     p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
     trace = run(p)
     assert trace.steps[-1].regs[2] == 0
+
+
+def test_branch_if_executes_body_on_nonzero_condition():
+    label_gen = _LabelGen()
+    insts = _emit_branch_if(
+        cmp_op=Op.LT, ri=0, rj=1, rc=2,
+        then_block=[Instruction(Op.LOAD, args=(3, 99))],
+        label_gen=label_gen,
+    )
+    prologue = [
+        Instruction(Op.LOAD, args=(0, 1)),    # Ri=1
+        Instruction(Op.LOAD, args=(1, 5)),    # Rj=5 -> Ri<Rj true -> Rc=1
+    ]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[3] == 99
+
+
+def test_branch_ifelse_executes_correct_arm():
+    label_gen = _LabelGen()
+    insts = _emit_branch_ifelse(
+        cmp_op=Op.LT, ri=0, rj=1, rc=2,
+        then_block=[Instruction(Op.LOAD, args=(3, 1))],
+        else_block=[Instruction(Op.LOAD, args=(3, 2))],
+        label_gen=label_gen,
+    )
+    prologue = [
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 1)),
+    ]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[3] == 2
+
+
+def test_branch_arith_zero_uses_sub_to_produce_zero():
+    label_gen = _LabelGen()
+    insts = _emit_branch_arith_zero(
+        arith_op=Op.SUB, ri=0, rj=1, rc=2,
+        then_block=[Instruction(Op.LOAD, args=(3, 7))],
+        label_gen=label_gen,
+    )
+    prologue = [
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 5)),
+    ]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[3] == 0  # then_block did not execute
