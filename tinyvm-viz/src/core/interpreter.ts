@@ -107,6 +107,20 @@ export function run(program: Program, stepCap: number | null = DEFAULT_STEP_CAP)
         regs[i] = regs[j]! < regs[k]! ? 1 : 0;
         break;
       }
+      case Op.PRINT: {
+        const [i] = inst.args as [number];
+        emitted = regs[i]!;
+        output.push(emitted);
+        break;
+      }
+      case Op.USEROP_0:
+      case Op.USEROP_1:
+      case Op.USEROP_2:
+      case Op.USEROP_3:
+      case Op.USEROP_4:
+        throw new InterpreterError(
+          `userop opcode USEROP_${inst.op - Op.USEROP_0} encountered; substitute via decomposition before run()`,
+        );
       case Op.PUSH: {
         const [i] = inst.args as [number];
         if (stack.length >= STACK_DEPTH) {
@@ -136,4 +150,27 @@ export function run(program: Program, stepCap: number | null = DEFAULT_STEP_CAP)
   }
 
   return { steps, output, halted: true };
+}
+
+import type { SerializedStep, SerializedTrace } from "./types";
+
+export function serializeTrace(t: ExecutionTrace): SerializedTrace {
+  return {
+    steps: t.steps.map((s) => ({ pc: s.pc, regs: [...s.regs], stack: [...s.stack], emitted: s.emitted })),
+    output: [...t.output],
+    halted: t.halted,
+  };
+}
+
+export function deserializeTrace(s: SerializedTrace): ExecutionTrace {
+  return {
+    steps: s.steps.map<StepRecord>((st: SerializedStep) => ({
+      pc: st.pc,
+      regs: [...st.regs],
+      stack: [...st.stack],
+      emitted: st.emitted,
+    })),
+    output: [...s.output],
+    halted: s.halted,
+  };
 }

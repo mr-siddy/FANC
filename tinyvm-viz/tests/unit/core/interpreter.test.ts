@@ -149,3 +149,49 @@ describe("interpreter: stack", () => {
     expect(() => run(p)).toThrow(InterpreterError);
   });
 });
+
+describe("interpreter: PRINT, step-cap, USEROP", () => {
+  it("PRINT emits register value into output", () => {
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 9] },
+      { op: Op.PRINT, args: [0] },
+      { op: Op.PRINT, args: [0] },
+      { op: Op.HALT, args: [] },
+    ]);
+    expect(run(p).output).toEqual([9, 9]);
+  });
+
+  it("step cap raises", () => {
+    const p = buildProgram([
+      { op: Op.JMP, args: [], target: "L0", label: "L0" },
+    ]);
+    expect(() => run(p, 100)).toThrow(/step cap/);
+  });
+
+  it("disables cap when stepCap=null", () => {
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 5] },
+      { op: Op.HALT, args: [] },
+    ]);
+    expect(run(p, null).halted).toBe(true);
+  });
+
+  it("USEROP_0 raises with a clear message", () => {
+    const p = buildProgram([{ op: Op.USEROP_0, args: [0, 1] }]);
+    expect(() => run(p)).toThrow(/userop/i);
+  });
+});
+
+describe("interpreter: trace (de)serialisation", () => {
+  it("serializeTrace and deserializeTrace are inverses", async () => {
+    const { serializeTrace, deserializeTrace } = await import("@/core/interpreter");
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 3] },
+      { op: Op.PRINT, args: [0] },
+      { op: Op.HALT, args: [] },
+    ]);
+    const trace = run(p);
+    const round = deserializeTrace(serializeTrace(trace));
+    expect(round).toEqual(trace);
+  });
+});
