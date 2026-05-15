@@ -3,6 +3,7 @@ from collections import Counter
 from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, _allocate_registers
 from tinyvm.interpreter import run
 from tinyvm.verifier import validate
+from tinyvm.isa import Op, Instruction, Program
 
 
 def test_shaping_spec_defaults_off():
@@ -65,3 +66,43 @@ def test_allocate_is_uniformly_random_across_seeds():
     # Expected ~1000 occurrences per register if uniform; allow ±30%.
     for r in range(8):
         assert 700 < counts[r] < 1300, f"R{r}: {counts[r]} (non-uniform)"
+
+
+_OP_SCHEMA_FOR_FILL = {
+    # Mirror of tokeniser._OP_ARG_SCHEMA for the ops fill_block can emit.
+    Op.LOAD: (1, 1, False),
+    Op.MOV: (2, 0, False),
+    Op.ADD: (3, 0, False),
+    Op.SUB: (3, 0, False),
+    Op.MUL: (3, 0, False),
+    Op.DIV: (3, 0, False),
+    Op.NEG: (2, 0, False),
+    Op.EQ: (3, 0, False),
+    Op.LT: (3, 0, False),
+}
+
+
+def test_fill_block_produces_n_instructions_all_in_active_set():
+    from tinyvm.generators import _fill_block
+
+    active = [1, 3, 5, 7]
+    insts = _fill_block(n=10, active=active, rng=random.Random(0))
+    assert len(insts) == 10
+    for inst in insts:
+        # All register args must be in active.
+        n_regs, n_lits, _has_target = _OP_SCHEMA_FOR_FILL[inst.op]
+        for ri in inst.args[:n_regs]:
+            assert ri in active, f"{inst.op.name} uses non-active reg {ri}"
+
+
+def test_fill_block_excludes_reserved_registers():
+    from tinyvm.generators import _fill_block
+
+    active = [0, 1, 2]
+    reserved = {1}
+    insts = _fill_block(n=20, active=active, rng=random.Random(0), exclude=reserved)
+    for inst in insts:
+        n_regs, _, _ = _OP_SCHEMA_FOR_FILL[inst.op]
+        # Destination register must NOT be in reserved.
+        if n_regs >= 1:
+            assert inst.args[0] not in reserved

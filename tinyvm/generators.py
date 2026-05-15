@@ -62,3 +62,49 @@ def _allocate_registers(k: int, rng: random.Random) -> list[int]:
     if not (1 <= k <= NUM_REGS):
         raise ValueError(f"k must be in [1, {NUM_REGS}], got {k}")
     return rng.sample(range(NUM_REGS), k)
+
+
+_FILL_OPS: list[Op] = [
+    Op.LOAD, Op.MOV, Op.ADD, Op.SUB, Op.MUL, Op.DIV, Op.NEG, Op.EQ, Op.LT,
+]
+_FILL_OP_ARITY: dict[Op, tuple[int, int]] = {
+    Op.LOAD: (1, 1),
+    Op.MOV: (2, 0),
+    Op.ADD: (3, 0), Op.SUB: (3, 0), Op.MUL: (3, 0), Op.DIV: (3, 0),
+    Op.NEG: (2, 0),
+    Op.EQ: (3, 0), Op.LT: (3, 0),
+}
+
+
+def _fill_block(
+    n: int,
+    active: list[int],
+    rng: random.Random,
+    exclude: set[int] | None = None,
+) -> list[Instruction]:
+    """Generate `n` straight-line instructions drawn from _FILL_OPS.
+
+    All register args are sampled from `active`. The DESTINATION register (the
+    first register arg of any writing op) is sampled from `active - exclude`,
+    so registers reserved as loop counters or stack-save sources are protected
+    from being clobbered.
+    """
+    exclude = exclude or set()
+    writable = [r for r in active if r not in exclude]
+    assert writable, "no writable registers (active fully excluded)"
+    insts: list[Instruction] = []
+    for _ in range(n):
+        op = rng.choice(_FILL_OPS)
+        n_regs, n_lits = _FILL_OP_ARITY[op]
+        args: list[int] = []
+        # Destination (first reg arg) sampled from writable.
+        if n_regs >= 1:
+            args.append(rng.choice(writable))
+        # Source regs sampled freely from active.
+        for _ in range(n_regs - 1):
+            args.append(rng.choice(active))
+        # Literal args.
+        for _ in range(n_lits):
+            args.append(rng.randint(LITERAL_MIN, LITERAL_MAX))
+        insts.append(Instruction(op=op, args=tuple(args)))
+    return insts
