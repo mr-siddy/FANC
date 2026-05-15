@@ -1,0 +1,26 @@
+[project]
+name = "tinyvm"
+version = "0.1.0"
+description = "Tiny-VM data generation engine for FANC"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-xdist>=3.3",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tinyvm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tinyvm/tests"]
+python_files = ["test_*.py"]
+addopts = "-ra -q"
