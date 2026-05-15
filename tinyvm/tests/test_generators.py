@@ -1,5 +1,6 @@
 import random
-from tinyvm.generators import GenSpec, ShapingSpec, gen_counter
+from collections import Counter
+from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, _allocate_registers
 from tinyvm.interpreter import run
 from tinyvm.verifier import validate
 
@@ -45,3 +46,22 @@ def test_gen_counter_property_validates_and_runs():
         assert validate(p)
         trace = run(p)
         assert len(trace.output) == 1
+
+
+def test_allocate_returns_k_distinct_registers():
+    rng = random.Random(0)
+    active = _allocate_registers(k=4, rng=rng)
+    assert len(active) == 4
+    assert len(set(active)) == 4
+    assert all(0 <= r < 8 for r in active)
+
+
+def test_allocate_is_uniformly_random_across_seeds():
+    counts = Counter()
+    for seed in range(2000):
+        rng = random.Random(seed)
+        for r in _allocate_registers(k=4, rng=rng):
+            counts[r] += 1
+    # Expected ~1000 occurrences per register if uniform; allow ±30%.
+    for r in range(8):
+        assert 700 < counts[r] < 1300, f"R{r}: {counts[r]} (non-uniform)"

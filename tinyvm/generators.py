@@ -4,7 +4,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from tinyvm.isa import Op, Instruction, Program, LITERAL_MIN, LITERAL_MAX
+from tinyvm.isa import Op, Instruction, Program, LITERAL_MIN, LITERAL_MAX, NUM_REGS
 
 
 @dataclass(frozen=True)
@@ -52,3 +52,13 @@ def gen_counter(n: int, rng: random.Random) -> Program:
     insts.append(Instruction(Op.PRINT, args=(0,)))
     insts.append(Instruction(Op.HALT))
     return Program.build(tuple(insts))
+
+
+def _allocate_registers(k: int, rng: random.Random) -> list[int]:
+    """Sample k distinct register indices uniformly from R0..R{NUM_REGS-1}.
+
+    Per-program randomisation is essential to avoid positional bias (spec §7.1).
+    """
+    if not (1 <= k <= NUM_REGS):
+        raise ValueError(f"k must be in [1, {NUM_REGS}], got {k}")
+    return rng.sample(range(NUM_REGS), k)
