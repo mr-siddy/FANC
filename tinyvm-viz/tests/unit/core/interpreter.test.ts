@@ -83,3 +83,44 @@ describe("interpreter: comparisons", () => {
     expect([regs[2], regs[3], regs[4]]).toEqual([1, 0, 0]);
   });
 });
+
+describe("interpreter: control flow", () => {
+  it("JZ taken when register is zero", () => {
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 0] },
+      { op: Op.JZ, args: [0], target: "L_END" },
+      { op: Op.LOAD, args: [1, 99] },
+      { op: Op.NOP, args: [], label: "L_END" },
+      { op: Op.HALT, args: [] },
+    ]);
+    expect(run(p).steps.at(-1)!.regs[1]).toBe(0);
+  });
+
+  it("JZ not taken when register is non-zero", () => {
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 1] },
+      { op: Op.JZ, args: [0], target: "L_END" },
+      { op: Op.LOAD, args: [1, 99] },
+      { op: Op.NOP, args: [], label: "L_END" },
+      { op: Op.HALT, args: [] },
+    ]);
+    expect(run(p).steps.at(-1)!.regs[1]).toBe(99);
+  });
+
+  it("JMP is unconditional", () => {
+    const p = buildProgram([
+      { op: Op.JMP, args: [], target: "L_SKIP" },
+      { op: Op.LOAD, args: [0, 99] },
+      { op: Op.NOP, args: [], label: "L_SKIP" },
+      { op: Op.HALT, args: [] },
+    ]);
+    expect(run(p).steps.at(-1)!.regs[0]).toBe(0);
+  });
+
+  it("falls off end halts implicitly", () => {
+    const p = buildProgram([{ op: Op.LOAD, args: [0, 5] }]);
+    const trace = run(p);
+    expect(trace.halted).toBe(true);
+    expect(trace.steps.at(-1)!.regs[0]).toBe(5);
+  });
+});

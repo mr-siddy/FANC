@@ -82,6 +82,21 @@ export function run(program: Program, stepCap: number | null = DEFAULT_STEP_CAP)
         regs[i] = clamp(-regs[j]!);
         break;
       }
+      case Op.JZ: {
+        const [i] = inst.args as [number];
+        if (regs[i]! === 0) {
+          const t = inst.target!;
+          nextPc = program.labelIndex.get(t)!;
+        }
+        break;
+      }
+      case Op.JMP: {
+        const t = inst.target!;
+        nextPc = program.labelIndex.get(t)!;
+        break;
+      }
+      case Op.NOP:
+        break;
       case Op.EQ: {
         const [i, j, k] = inst.args as [number, number, number];
         regs[i] = regs[j]! === regs[k]! ? 1 : 0;
@@ -102,7 +117,6 @@ export function run(program: Program, stepCap: number | null = DEFAULT_STEP_CAP)
 
     steps.push({ pc: executedPc, regs: [...regs], stack: [...stack], emitted });
     pc = nextPc;
-    void stack; void output; void STACK_DEPTH; void isUserop;
   }
 
   return { steps, output, halted: true };
