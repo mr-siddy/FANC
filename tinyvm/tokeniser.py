@@ -147,3 +147,77 @@ def encode(program: Program) -> list[int]:
     for inst in program.instructions:
         flat.extend(_encode_instruction(inst))
     return [TOKEN_TO_ID[t] for t in flat]
+
+
+_TOKEN_NAME_TO_OP: dict[str, Op] = {op.name: op for op in Op if not op.is_userop()}
+_SYMBOL_TO_USEROP: dict[str, Op] = {
+    sym: slot for slot, sym in USEROP_SLOT_TO_SYMBOL.items()
+}
+
+
+def _read_int(tokens: list[str], pos: int) -> tuple[int, int]:
+    """Read a (possibly negative) integer literal at `tokens[pos]`. Returns (value, new_pos)."""
+    sign = 1
+    if tokens[pos] == MINUS:
+        sign = -1
+        pos += 1
+    digits = ""
+    while pos < len(tokens) and tokens[pos] in DIGIT_TOKENS:
+        digits += tokens[pos]
+        pos += 1
+    assert digits, "expected digit sequence"
+    return sign * int(digits), pos
+
+
+def _read_label(tokens: list[str], pos: int) -> tuple[str, int]:
+    """Read an L<digits> label at `tokens[pos]`. Returns (label, new_pos)."""
+    assert tokens[pos] == L_MARKER
+    pos += 1
+    digits = ""
+    while pos < len(tokens) and tokens[pos] in DIGIT_TOKENS:
+        digits += tokens[pos]
+        pos += 1
+    assert digits, "expected digit sequence after L marker"
+    return f"L{int(digits)}", pos
+
+
+def decode(ids: list[int]) -> Program:
+    """Inverse of encode. Reconstructs a Program from token IDs."""
+    tokens = [ID_TO_TOKEN[i] for i in ids]
+    insts: list[Instruction] = []
+    pos = 0
+    while pos < len(tokens):
+        label: str | None = None
+        # Optional label definition: L <digits> COLON <opcode> ...
+        if tokens[pos] == L_MARKER and (pos + 1) < len(tokens) and tokens[pos + 1] in DIGIT_TOKENS:
+            scan = pos + 1
+            while scan < len(tokens) and tokens[scan] in DIGIT_TOKENS:
+                scan += 1
+            if scan < len(tokens) and tokens[scan] == COLON:
+                label, pos = _read_label(tokens, pos)
+                pos += 1  # consume COLON
+        # Opcode (base name or userop symbol).
+        op_tok = tokens[pos]
+        pos += 1
+        if op_tok in _TOKEN_NAME_TO_OP:
+            op = _TOKEN_NAME_TO_OP[op_tok]
+        elif op_tok in _SYMBOL_TO_USEROP:
+            op = _SYMBOL_TO_USEROP[op_tok]
+        else:
+            raise ValueError(f"unexpected opcode token: {op_tok}")
+        n_regs, n_lits, has_target = _OP_ARG_SCHEMA[op]
+        args: list[int] = []
+        for _ in range(n_regs):
+            reg_tok = tokens[pos]
+            pos += 1
+            args.append(REGISTER_TOKENS.index(reg_tok))
+        for _ in range(n_lits):
+            v, pos = _read_int(tokens, pos)
+            args.append(v)
+        target: str | None = None
+        if has_target:
+            target, pos = _read_label(tokens, pos)
+        assert tokens[pos] == NEWLINE, f"expected NEWLINE, got {tokens[pos]}"
+        pos += 1
+        insts.append(Instruction(op=op, args=tuple(args), label=label, target=target))
+    return Program.build(tuple(insts))

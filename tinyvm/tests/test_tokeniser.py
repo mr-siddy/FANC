@@ -79,3 +79,42 @@ def test_encode_print():
 def test_encode_userop_instruction_uses_symbol():
     p = Program.build((Instruction(Op.USEROP_0, args=(1, 0)),))
     assert encode(p) == _ids("DOUBLE", "R1", "R0", "NEWLINE")
+
+
+import random
+from tinyvm.tokeniser import decode
+
+
+def test_decode_simple_load():
+    ids = _ids("LOAD", "R3", "MINUS", "4", "2", "NEWLINE")
+    p = decode(ids)
+    assert len(p.instructions) == 1
+    assert p.instructions[0] == Instruction(Op.LOAD, args=(3, -42))
+
+
+def test_decode_labeled_jmp():
+    ids = _ids("L", "3", "COLON", "JMP", "L", "3", "NEWLINE")
+    p = decode(ids)
+    assert p.instructions[0].label == "L3"
+    assert p.instructions[0].op == Op.JMP
+    assert p.instructions[0].target == "L3"
+
+
+def test_round_trip_random_programs():
+    """decode(encode(p)) == p for any well-formed generator output."""
+    rng = random.Random(0)
+    for _ in range(200):
+        n = rng.randint(1, 10)
+        insts: list[Instruction] = []
+        for _ in range(n):
+            choice = rng.choice([
+                Instruction(Op.LOAD, args=(rng.randint(0, 7), rng.randint(-127, 127))),
+                Instruction(Op.ADD, args=(rng.randint(0, 7), rng.randint(0, 7), rng.randint(0, 7))),
+                Instruction(Op.MOV, args=(rng.randint(0, 7), rng.randint(0, 7))),
+                Instruction(Op.PRINT, args=(rng.randint(0, 7),)),
+                Instruction(Op.NOP),
+                Instruction(Op.HALT),
+            ])
+            insts.append(choice)
+        p = Program.build(tuple(insts))
+        assert decode(encode(p)) == p
