@@ -130,3 +130,21 @@ def test_validate_loop_counter_uniqueness_smoke():
         Instruction(Op.NOP, label="END"),
     ))
     assert validate(p) is True
+
+
+def test_validate_with_userop_requires_signatures():
+    p = Program.build((
+        Instruction(Op.USEROP_0, args=(0, 1)),  # DOUBLE R0 R1
+        Instruction(Op.PRINT, args=(0,)),
+    ))
+    assert validate(p) is False  # missing signatures
+
+
+def test_validate_with_userop_signatures_passes():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(1, 5)),
+        Instruction(Op.USEROP_0, args=(0, 1)),   # DOUBLE writes R0
+        Instruction(Op.PRINT, args=(0,)),
+    ))
+    sigs = {"DOUBLE": {0}}
+    assert validate(p, userop_signatures=sigs) is True
