@@ -176,3 +176,45 @@ def _emit_loop_countdown(
 def _with_label(inst: Instruction, label: str) -> Instruction:
     """Return a copy of inst carrying `label`."""
     return Instruction(op=inst.op, args=inst.args, label=label, target=inst.target)
+
+
+def _emit_loop_countup(
+    counter: int, r_k: int, r_diff: int, r_one: int, k: int,
+    body: list[Instruction], label_gen: _LabelGen,
+) -> list[Instruction]:
+    """Spec §7.2(b) count-up loop. Pre-condition: r_one == 1 loaded."""
+    l_top = label_gen.fresh()
+    l_done = label_gen.fresh()
+    insts: list[Instruction] = [
+        Instruction(Op.LOAD, args=(counter, 0)),
+        Instruction(Op.LOAD, args=(r_k, k)),
+    ]
+    if body:
+        insts.append(_with_label(body[0], l_top))
+        insts.extend(body[1:])
+    else:
+        insts.append(Instruction(Op.NOP, label=l_top))
+    insts.append(Instruction(Op.ADD, args=(counter, counter, r_one)))
+    insts.append(Instruction(Op.SUB, args=(r_diff, r_k, counter)))
+    insts.append(Instruction(Op.JZ, args=(r_diff,), target=l_done))
+    insts.append(Instruction(Op.JMP, args=(), target=l_top))
+    insts.append(Instruction(Op.NOP, label=l_done))
+    return insts
+
+
+def _emit_loop_test_at_top(
+    counter: int, r_one: int, k: int,
+    body: list[Instruction], label_gen: _LabelGen,
+) -> list[Instruction]:
+    """Spec §7.2(c) test-at-top loop. Pre-condition: r_one == 1 loaded."""
+    l_top = label_gen.fresh()
+    l_done = label_gen.fresh()
+    insts: list[Instruction] = [
+        Instruction(Op.LOAD, args=(counter, k)),
+        Instruction(Op.JZ, args=(counter,), target=l_done, label=l_top),
+    ]
+    insts.extend(body)
+    insts.append(Instruction(Op.SUB, args=(counter, counter, r_one)))
+    insts.append(Instruction(Op.JMP, args=(), target=l_top))
+    insts.append(Instruction(Op.NOP, label=l_done))
+    return insts

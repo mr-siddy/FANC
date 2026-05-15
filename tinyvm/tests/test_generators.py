@@ -138,3 +138,33 @@ def test_loop_countdown_terminates_after_k_iterations():
     trace = run(p)
     final_regs = trace.steps[-1].regs
     assert final_regs[counter] == 0
+
+
+def test_loop_countup_executes_k_iterations():
+    from tinyvm.generators import _emit_loop_countup, _LabelGen
+
+    label_gen = _LabelGen()
+    insts = _emit_loop_countup(
+        counter=0, r_k=1, r_diff=2, r_one=3, k=4,
+        body=[Instruction(Op.ADD, args=(4, 4, 3))],
+        label_gen=label_gen,
+    )
+    prologue = [Instruction(Op.LOAD, args=(3, 1))]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[4] == 4
+
+
+def test_loop_test_at_top_zero_iterations_skips_body():
+    from tinyvm.generators import _emit_loop_test_at_top, _LabelGen
+
+    label_gen = _LabelGen()
+    insts = _emit_loop_test_at_top(
+        counter=0, r_one=1, k=0,
+        body=[Instruction(Op.ADD, args=(2, 2, 1))],
+        label_gen=label_gen,
+    )
+    prologue = [Instruction(Op.LOAD, args=(1, 1))]
+    p = Program.build(tuple(prologue + insts + [Instruction(Op.HALT)]))
+    trace = run(p)
+    assert trace.steps[-1].regs[2] == 0
