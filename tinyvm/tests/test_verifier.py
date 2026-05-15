@@ -55,3 +55,44 @@ def test_validate_rejects_wrong_opcode_arity():
         Instruction(Op.ADD, args=(0, 1)),
     ))
     assert validate(p) is False
+
+
+def test_validate_rejects_print_without_write():
+    p = Program.build((
+        Instruction(Op.PRINT, args=(3,)),
+    ))
+    assert validate(p) is False
+
+
+def test_validate_accepts_print_after_write():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(3, 5)),
+        Instruction(Op.PRINT, args=(3,)),
+    ))
+    assert validate(p) is True
+
+
+def test_validate_handles_branch_paths():
+    # Both arms write R3 before PRINT.
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 0)),
+        Instruction(Op.JZ, args=(0,), target="ELSE"),
+        Instruction(Op.LOAD, args=(3, 1)),    # then arm
+        Instruction(Op.JMP, args=(), target="JOIN"),
+        Instruction(Op.LOAD, args=(3, 2), label="ELSE"),  # else arm
+        Instruction(Op.PRINT, args=(3,), label="JOIN"),
+    ))
+    assert validate(p) is True
+
+
+def test_validate_rejects_branch_with_unwritten_arm():
+    # ELSE arm doesn't write R3.
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 0)),
+        Instruction(Op.JZ, args=(0,), target="ELSE"),
+        Instruction(Op.LOAD, args=(3, 1)),
+        Instruction(Op.JMP, args=(), target="JOIN"),
+        Instruction(Op.NOP, label="ELSE"),
+        Instruction(Op.PRINT, args=(3,), label="JOIN"),
+    ))
+    assert validate(p) is False

@@ -4,7 +4,7 @@ from __future__ import annotations
 from tinyvm.tokeniser import (
     BOS, DIGIT_TOKENS, EOS, ID_TO_TOKEN, MINUS, NEWLINE, _OP_ARG_SCHEMA,
 )
-from tinyvm.isa import Program
+from tinyvm.isa import Op, Program, Instruction
 
 
 def _decode_value_stream(ids: list[int]) -> list[int]:
@@ -86,9 +86,87 @@ def _check_label_targets(program: Program) -> None:
             raise _ValidationFailure(f"unknown label target: {inst.target}")
 
 
-# Stubs for the remaining checks — Tasks 18-21 will implement.
-def _check_print_predecessors(program: Program, userop_signatures: dict[str, set[int]] | None) -> None:
-    pass
+def _writes_of(inst: Instruction, userop_signatures: dict[str, set[int]] | None) -> set[int]:
+    """Return the set of register indices written by this instruction."""
+    op = inst.op
+    if op.is_userop():
+        if userop_signatures is None:
+            raise _ValidationFailure(
+                f"userop {inst.op.name} encountered but userop_signatures=None"
+            )
+        from tinyvm.tokeniser import USEROP_SLOT_TO_SYMBOL
+        sym = USEROP_SLOT_TO_SYMBOL[op]
+        return set(userop_signatures[sym])
+    writes_one_reg = {
+        Op.LOAD, Op.MOV, Op.ADD, Op.SUB, Op.MUL, Op.DIV,
+        Op.NEG, Op.EQ, Op.LT, Op.POP,
+    }
+    if op in writes_one_reg:
+        return {inst.args[0]}
+    return set()
+
+
+def _successors(program: Program, idx: int) -> list[int]:
+    """Return the indices of instructions reachable in one step from program[idx]."""
+    inst = program.instructions[idx]
+    n = len(program.instructions)
+    if inst.op == Op.HALT:
+        return []
+    if inst.op == Op.JMP:
+        return [program.label_index[inst.target]]
+    if inst.op == Op.JZ:
+        nexts = []
+        if idx + 1 < n:
+            nexts.append(idx + 1)
+        nexts.append(program.label_index[inst.target])
+        return nexts
+    if idx + 1 < n:
+        return [idx + 1]
+    return []
+
+
+def _check_print_predecessors(
+    program: Program,
+    userop_signatures: dict[str, set[int]] | None,
+) -> None:
+    """For every PRINT Ri, ensure every reachable path from entry writes Ri before PRINT."""
+    n = len(program.instructions)
+    if n == 0:
+        return
+    NUM_REGS_LOCAL = 8
+    UNIVERSE = set(range(NUM_REGS_LOCAL))
+    written_in: list[set[int]] = [UNIVERSE.copy() for _ in range(n)]
+    written_in[0] = set()
+    predecessors: list[list[int]] = [[] for _ in range(n)]
+    for i in range(n):
+        for j in _successors(program, i):
+            predecessors[j].append(i)
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(n):
+            if i == 0:
+                continue
+            preds = predecessors[i]
+            if not preds:
+                new = set()  # unreachable
+            else:
+                new = set.intersection(*(
+                    written_in[p] | _writes_of(program.instructions[p], userop_signatures)
+                    for p in preds
+                ))
+            if new != written_in[i]:
+                written_in[i] = new
+                changed = True
+
+    for i, inst in enumerate(program.instructions):
+        if inst.op == Op.PRINT:
+            (ri,) = inst.args
+            if ri not in written_in[i]:
+                raise _ValidationFailure(
+                    f"PRINT R{ri} at idx {i} not preceded by write on all paths"
+                )
 
 
 def _check_stack_balance(program: Program) -> None:
