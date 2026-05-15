@@ -1,7 +1,7 @@
 from tinyvm.tokeniser import (
     VOCAB_SIZE, TOKEN_TO_ID, ID_TO_TOKEN, OPCODE_TOKENS, REGISTER_TOKENS,
     DIGIT_TOKENS, MINUS, L_MARKER, COLON, EQUALS, DECOMP, NEWLINE,
-    BOS, EOS, PAD, QUERY, USEROP_TOKENS, encode,
+    BOS, EOS, PAD, QUERY, USEROP_TOKENS, encode, render_direct,
 )
 from tinyvm.isa import Op, Instruction, Program
 
@@ -83,6 +83,7 @@ def test_encode_userop_instruction_uses_symbol():
 
 import random
 from tinyvm.tokeniser import decode
+from tinyvm.interpreter import run
 
 
 def test_decode_simple_load():
@@ -118,3 +119,30 @@ def test_round_trip_random_programs():
             insts.append(choice)
         p = Program.build(tuple(insts))
         assert decode(encode(p)) == p
+
+
+def test_render_direct_input_is_bos_program_eos():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 3)),
+        Instruction(Op.PRINT, args=(0,)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    inp, tgt = render_direct(p, trace)
+    assert inp[0] == TOKEN_TO_ID[BOS]
+    assert inp[-1] == TOKEN_TO_ID[EOS]
+    assert inp[1:-1] == encode(p)
+
+
+def test_render_direct_target_is_print_value_stream():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 3)),
+        Instruction(Op.PRINT, args=(0,)),
+        Instruction(Op.LOAD, args=(0, -5)),
+        Instruction(Op.PRINT, args=(0,)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    _, tgt = render_direct(p, trace)
+    expected = [TOKEN_TO_ID[BOS]] + _ids("3", "NEWLINE", "MINUS", "5", "NEWLINE") + [TOKEN_TO_ID[EOS]]
+    assert tgt == expected

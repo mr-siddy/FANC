@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from tinyvm.isa import NUM_REGS, Op, Instruction, Program
+from tinyvm.interpreter import ExecutionTrace
 
 
 # 1. Build the vocab as an ordered list of tokens. ID = list position.
@@ -221,3 +222,14 @@ def decode(ids: list[int]) -> Program:
         pos += 1
         insts.append(Instruction(op=op, args=tuple(args), label=label, target=target))
     return Program.build(tuple(insts))
+
+
+def render_direct(program: Program, trace: ExecutionTrace) -> tuple[list[int], list[int]]:
+    """Spec §8.3 render_direct: input=BOS+program+EOS, target=BOS+output stream+EOS."""
+    inp = [TOKEN_TO_ID[BOS]] + encode(program) + [TOKEN_TO_ID[EOS]]
+    target_tokens: list[str] = [BOS]
+    for v in trace.output:
+        target_tokens.extend(_digits_of(v))
+        target_tokens.append(NEWLINE)
+    target_tokens.append(EOS)
+    return inp, [TOKEN_TO_ID[t] for t in target_tokens]
