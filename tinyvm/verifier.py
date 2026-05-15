@@ -170,7 +170,67 @@ def _check_print_predecessors(
 
 
 def _check_stack_balance(program: Program) -> None:
-    pass
+    """Dataflow over stack depth. depth_in[idx] = single value tracked per node.
+
+    Generate-only-valid means we want exact balance, so we model depth as a
+    single value rather than a range; if paths converge with different depths
+    we flag it.
+    """
+    from tinyvm.isa import STACK_DEPTH
+    n = len(program.instructions)
+    if n == 0:
+        return
+    depth_in: list[int | None] = [None] * n
+    depth_in[0] = 0
+    predecessors: list[list[int]] = [[] for _ in range(n)]
+    for i in range(n):
+        for j in _successors(program, i):
+            predecessors[j].append(i)
+
+    def _depth_delta(op: Op) -> int:
+        if op == Op.PUSH:
+            return 1
+        if op == Op.POP:
+            return -1
+        return 0
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(n):
+            if i == 0:
+                continue
+            preds = predecessors[i]
+            if not preds:
+                continue
+            new_depth: int | None = None
+            for p in preds:
+                if depth_in[p] is None:
+                    continue
+                d = depth_in[p] + _depth_delta(program.instructions[p].op)
+                if d < 0:
+                    raise _ValidationFailure(f"POP at idx {p} underflows")
+                if d > STACK_DEPTH:
+                    raise _ValidationFailure(
+                        f"PUSH at idx {p} overflows (depth {d} > {STACK_DEPTH})"
+                    )
+                # Check if instruction i itself would cause underflow/overflow
+                d_after = d + _depth_delta(program.instructions[i].op)
+                if d_after < 0:
+                    raise _ValidationFailure(f"POP at idx {i} underflows")
+                if d_after > STACK_DEPTH:
+                    raise _ValidationFailure(
+                        f"PUSH at idx {i} overflows (depth {d_after} > {STACK_DEPTH})"
+                    )
+                if new_depth is None:
+                    new_depth = d
+                elif new_depth != d:
+                    raise _ValidationFailure(
+                        f"stack depth at idx {i} not balanced across paths: {new_depth} vs {d}"
+                    )
+            if new_depth is not None and depth_in[i] != new_depth:
+                depth_in[i] = new_depth
+                changed = True
 
 
 def _check_loop_counter_uniqueness(program: Program) -> None:

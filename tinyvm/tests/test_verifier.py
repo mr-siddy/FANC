@@ -1,6 +1,6 @@
 import pytest
 from tinyvm.tokeniser import TOKEN_TO_ID, BOS, EOS, NEWLINE, DIGIT_TOKENS, MINUS
-from tinyvm.isa import Op, Instruction, Program
+from tinyvm.isa import Op, Instruction, Program, STACK_DEPTH
 from tinyvm.verifier import score_output, validate
 
 
@@ -95,4 +95,25 @@ def test_validate_rejects_branch_with_unwritten_arm():
         Instruction(Op.NOP, label="ELSE"),
         Instruction(Op.PRINT, args=(3,), label="JOIN"),
     ))
+    assert validate(p) is False
+
+
+def test_validate_rejects_pop_without_push():
+    p = Program.build((Instruction(Op.LOAD, args=(0, 1)), Instruction(Op.POP, args=(0,))))
+    assert validate(p) is False
+
+
+def test_validate_accepts_balanced_push_pop():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 1)),
+        Instruction(Op.PUSH, args=(0,)),
+        Instruction(Op.POP, args=(1,)),
+    ))
+    assert validate(p) is True
+
+
+def test_validate_rejects_stack_overflow_by_construction():
+    insts = [Instruction(Op.LOAD, args=(0, 1))]
+    insts += [Instruction(Op.PUSH, args=(0,)) for _ in range(STACK_DEPTH + 1)]
+    p = Program.build(tuple(insts))
     assert validate(p) is False
