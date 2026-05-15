@@ -302,3 +302,63 @@ def render_probe_query(
 def probe_targets(program: Program, trace: ExecutionTrace) -> list[tuple[int, ...]]:
     """Spec §8.4 non-text probe mode: register files per step as plain tuples."""
     return [s.regs for s in trace.steps]
+
+
+def _tokens_to_text(tokens: list[str]) -> str:
+    """Render a list of vocab tokens to a human-readable string.
+
+    Surface rules: spaces between tokens, except no space before COLON or
+    NEWLINE. MINUS attaches to the following digit. EQUALS attaches to
+    the digit sequence on both sides (R0=5 not R0 = 5). NEWLINE -> '\\n'.
+    BOS, EOS, PAD are omitted from output.
+    """
+    out: list[str] = []
+    for i, t in enumerate(tokens):
+        if t in (BOS, EOS, PAD):
+            # Skip control tokens that frame the sequence
+            continue
+        elif t == NEWLINE:
+            out.append("\n")
+        elif t == COLON:
+            if out and out[-1] == " ":
+                out.pop()
+            out.append(":")
+        elif t == EQUALS:
+            if out and out[-1] == " ":
+                out.pop()
+            out.append("=")
+        elif t == MINUS:
+            if out and out[-1] == " ":
+                out.pop()
+            out.append("-")
+        elif t == L_MARKER:
+            out.append("L")
+        elif t in (QUERY, DECOMP):
+            out.append(t if t != QUERY else "?")
+            out.append(" ")
+        elif t in DIGIT_TOKENS:
+            if out and out[-1] in {*DIGIT_TOKENS, "L", "-"}:
+                out.append(t)
+            else:
+                out.append(t)
+        else:
+            out.append(t)
+            out.append(" ")
+    return "".join(out)
+
+
+def render_direct_text(program: Program, trace: ExecutionTrace) -> tuple[str, str]:
+    """Text-level render for Qwen tokeniser hand-off (spec §8.6)."""
+    inp_ids, tgt_ids = render_direct(program, trace)
+    inp_text = _tokens_to_text([ID_TO_TOKEN[i] for i in inp_ids])
+    tgt_text = _tokens_to_text([ID_TO_TOKEN[i] for i in tgt_ids])
+    return inp_text, tgt_text
+
+
+def render_cot_text(program: Program, trace: ExecutionTrace, mode: str = "full") -> tuple[str, str]:
+    """Text-level CoT render for Qwen tokeniser hand-off."""
+    inp_ids, tgt_ids = render_cot(program, trace, mode=mode)
+    return (
+        _tokens_to_text([ID_TO_TOKEN[i] for i in inp_ids]),
+        _tokens_to_text([ID_TO_TOKEN[i] for i in tgt_ids]),
+    )

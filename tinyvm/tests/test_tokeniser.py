@@ -223,3 +223,30 @@ def test_probe_targets_returns_register_tuples_per_step():
     assert len(targets) == len(trace.steps)
     assert targets[0][0] == 5
     assert targets[1][0] == 5 and targets[1][1] == 7
+
+
+from tinyvm.tokeniser import render_direct_text, render_cot_text
+
+
+def test_render_direct_text_produces_human_readable_string():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 3)),
+        Instruction(Op.PRINT, args=(0,)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    inp_text, tgt_text = render_direct_text(p, trace)
+    assert "LOAD R0 3" in inp_text
+    assert "PRINT R0" in inp_text
+    assert tgt_text.strip() == "3"
+
+
+def test_render_cot_text_includes_register_file_strings():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 1)),
+        Instruction(Op.HALT),
+    ))
+    trace = run(p)
+    _, tgt_text = render_cot_text(p, trace, mode="full")
+    assert "R0=1" in tgt_text
+    assert "R7=0" in tgt_text
