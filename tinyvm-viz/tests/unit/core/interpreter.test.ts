@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildProgram, Op } from "@/core/isa";
-import { run } from "@/core/interpreter";
+import { run, InterpreterError } from "@/core/interpreter";
 
 describe("interpreter: arithmetic", () => {
   it("LOAD then MOV", () => {
@@ -122,5 +122,30 @@ describe("interpreter: control flow", () => {
     const trace = run(p);
     expect(trace.halted).toBe(true);
     expect(trace.steps.at(-1)!.regs[0]).toBe(5);
+  });
+});
+
+describe("interpreter: stack", () => {
+  it("PUSH then POP round-trips", () => {
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 7] },
+      { op: Op.PUSH, args: [0] },
+      { op: Op.POP, args: [1] },
+      { op: Op.HALT, args: [] },
+    ]);
+    expect(run(p).steps.at(-1)!.regs[1]).toBe(7);
+  });
+
+  it("PUSH past STACK_DEPTH raises", () => {
+    const insts = [];
+    insts.push({ op: Op.LOAD, args: [0, 1] });
+    for (let i = 0; i < 17; i++) insts.push({ op: Op.PUSH, args: [0] });
+    const p = buildProgram(insts);
+    expect(() => run(p)).toThrow(InterpreterError);
+  });
+
+  it("POP from empty stack raises", () => {
+    const p = buildProgram([{ op: Op.POP, args: [0] }]);
+    expect(() => run(p)).toThrow(InterpreterError);
   });
 });

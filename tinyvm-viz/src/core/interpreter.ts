@@ -107,6 +107,22 @@ export function run(program: Program, stepCap: number | null = DEFAULT_STEP_CAP)
         regs[i] = regs[j]! < regs[k]! ? 1 : 0;
         break;
       }
+      case Op.PUSH: {
+        const [i] = inst.args as [number];
+        if (stack.length >= STACK_DEPTH) {
+          throw new InterpreterError("stack overflow");
+        }
+        stack.push(regs[i]!);
+        break;
+      }
+      case Op.POP: {
+        const [i] = inst.args as [number];
+        if (stack.length === 0) {
+          throw new InterpreterError("stack underflow");
+        }
+        regs[i] = stack.pop()!;
+        break;
+      }
       case Op.HALT: {
         steps.push({ pc: executedPc, regs: [...regs], stack: [...stack], emitted: null });
         return { steps, output, halted: true };
