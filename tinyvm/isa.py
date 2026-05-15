@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
+from types import MappingProxyType
 from typing import Mapping
 
 
@@ -69,4 +70,4 @@ class Program:
                 if inst.label in idx:
                     raise ValueError(f"duplicate label: {inst.label}")
                 idx[inst.label] = i
-        return cls(instructions=tuple(instructions), label_index=idx)
+        return cls(instructions=tuple(instructions), label_index=MappingProxyType(idx))

@@ -68,3 +68,11 @@ def test_program_build_rejects_duplicate_labels():
     )
     with pytest.raises(ValueError, match="duplicate label"):
         Program.build(insts)
+
+
+def test_program_label_index_is_immutable():
+    p = Program.build((
+        Instruction(op=Op.LOAD, args=(0, 1), label="L0"),
+    ))
+    with pytest.raises(TypeError):
+        p.label_index["NEW"] = 99  # type: ignore[index]
