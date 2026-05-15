@@ -63,3 +63,36 @@ def test_div_truncates_toward_zero():
     )
     trace = run(p)
     assert trace.steps[-1].regs[2] == 3
+
+
+def test_eq_returns_one_when_equal():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 5)),
+        Instruction(Op.EQ, args=(2, 0, 1)),
+    )
+    trace = run(p)
+    assert trace.steps[-1].regs[2] == 1
+
+
+def test_eq_returns_zero_when_unequal():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.LOAD, args=(1, 6)),
+        Instruction(Op.EQ, args=(2, 0, 1)),
+    )
+    trace = run(p)
+    assert trace.steps[-1].regs[2] == 0
+
+
+def test_lt_strict_less_than():
+    p = _prog(
+        Instruction(Op.LOAD, args=(0, 3)),
+        Instruction(Op.LOAD, args=(1, 4)),
+        Instruction(Op.LT, args=(2, 0, 1)),
+        Instruction(Op.LT, args=(3, 1, 0)),
+        Instruction(Op.LT, args=(4, 0, 0)),
+    )
+    trace = run(p)
+    regs = trace.steps[-1].regs
+    assert regs[2] == 1 and regs[3] == 0 and regs[4] == 0

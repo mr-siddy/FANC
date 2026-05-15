@@ -89,6 +89,12 @@ def run(program: Program, step_cap: int | None = DEFAULT_STEP_CAP) -> ExecutionT
         elif op == Op.NEG:
             i, j = args
             regs[i] = _clamp(-regs[j])
+        elif op == Op.EQ:
+            i, j, k = args
+            regs[i] = 1 if regs[j] == regs[k] else 0
+        elif op == Op.LT:
+            i, j, k = args
+            regs[i] = 1 if regs[j] < regs[k] else 0
         else:
             raise InterpreterError(f"unhandled op (partial impl): {op}")
 
