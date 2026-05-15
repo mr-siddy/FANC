@@ -1,7 +1,7 @@
 """Tokeniser: 64-token vocab + encode/decode + renderers (spec §8)."""
 from __future__ import annotations
 
-from tinyvm.isa import NUM_REGS, Op
+from tinyvm.isa import NUM_REGS, Op, Instruction, Program
 
 
 # 1. Build the vocab as an ordered list of tokens. ID = list position.
@@ -43,3 +43,107 @@ assert VOCAB_SIZE == 64, f"vocab size is {VOCAB_SIZE}, expected 64"
 
 TOKEN_TO_ID: dict[str, int] = {tok: i for i, tok in enumerate(_ALL_TOKENS)}
 ID_TO_TOKEN: dict[int, str] = {i: tok for tok, i in TOKEN_TO_ID.items()}
+
+
+# Userop slot -> default symbol (matches USEROP_TOKENS order).
+USEROP_SLOT_TO_SYMBOL: dict[Op, str] = {
+    Op.USEROP_0: USEROP_TOKENS[0],
+    Op.USEROP_1: USEROP_TOKENS[1],
+    Op.USEROP_2: USEROP_TOKENS[2],
+    Op.USEROP_3: USEROP_TOKENS[3],
+    Op.USEROP_4: USEROP_TOKENS[4],
+}
+
+
+def _opcode_token(op: Op) -> str:
+    if op.is_userop():
+        return USEROP_SLOT_TO_SYMBOL[op]
+    return op.name
+
+
+# Per-opcode argument schema: (n_register_args, n_literal_args, has_label_target).
+_OP_ARG_SCHEMA: dict[Op, tuple[int, int, bool]] = {
+    Op.LOAD: (1, 1, False),
+    Op.MOV: (2, 0, False),
+    Op.ADD: (3, 0, False),
+    Op.SUB: (3, 0, False),
+    Op.MUL: (3, 0, False),
+    Op.DIV: (3, 0, False),
+    Op.NEG: (2, 0, False),
+    Op.EQ: (3, 0, False),
+    Op.LT: (3, 0, False),
+    Op.JZ: (1, 0, True),
+    Op.JMP: (0, 0, True),
+    Op.PUSH: (1, 0, False),
+    Op.POP: (1, 0, False),
+    Op.PRINT: (1, 0, False),
+    Op.NOP: (0, 0, False),
+    Op.HALT: (0, 0, False),
+    # Userops (default symbol bindings):
+    Op.USEROP_0: (2, 0, False),   # DOUBLE Ri Rj
+    Op.USEROP_1: (3, 0, False),   # MAX Ri Rj Rk
+    Op.USEROP_2: (2, 0, False),   # ABS Ri Rj
+    Op.USEROP_3: (3, 0, False),   # MOD Ri Rj Rk
+    Op.USEROP_4: (2, 0, False),   # SIGN Ri Rj
+}
+
+
+def _digits_of(n: int) -> list[str]:
+    """Encode a signed integer as MINUS? digit sequence."""
+    out: list[str] = []
+    if n < 0:
+        out.append(MINUS)
+        n = -n
+    for c in str(n):
+        out.append(c)
+    return out
+
+
+# Labels emitted by generators are 'L<n>' where n is an integer; non-numeric
+# labels (e.g. "END" used in some test programs) are mapped through a registry
+# so encode/decode stays bijective. Generator-produced label ids live in
+# [0, 9999]; the registry assigns 10_000+.
+_LABEL_REGISTRY: dict[str, int] = {}
+_LABEL_ID_COUNTER: list[int] = [10_000]
+
+
+def _next_label_id() -> int:
+    _LABEL_ID_COUNTER[0] += 1
+    return _LABEL_ID_COUNTER[0]
+
+
+def _label_to_int(label: str) -> int:
+    if label.startswith("L") and label[1:].isdigit():
+        return int(label[1:])
+    return _LABEL_REGISTRY.setdefault(label, _next_label_id())
+
+
+def _encode_instruction(inst: Instruction) -> list[str]:
+    tokens: list[str] = []
+    if inst.label is not None:
+        tokens.append(L_MARKER)
+        tokens.extend(c for c in str(_label_to_int(inst.label)))
+        tokens.append(COLON)
+    tokens.append(_opcode_token(inst.op))
+    n_regs, n_lits, has_target = _OP_ARG_SCHEMA[inst.op]
+    args = list(inst.args)
+    for _ in range(n_regs):
+        ri = args.pop(0)
+        tokens.append(REGISTER_TOKENS[ri])
+    for _ in range(n_lits):
+        lit = args.pop(0)
+        tokens.extend(_digits_of(lit))
+    if has_target:
+        assert inst.target is not None
+        tokens.append(L_MARKER)
+        tokens.extend(c for c in str(_label_to_int(inst.target)))
+    tokens.append(NEWLINE)
+    return tokens
+
+
+def encode(program: Program) -> list[int]:
+    """Encode a Program to a flat list of token IDs."""
+    flat: list[str] = []
+    for inst in program.instructions:
+        flat.extend(_encode_instruction(inst))
+    return [TOKEN_TO_ID[t] for t in flat]
