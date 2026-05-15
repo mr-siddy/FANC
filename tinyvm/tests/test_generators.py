@@ -4,6 +4,38 @@ from tinyvm.generators import GenSpec, ShapingSpec, gen_counter, gen_register_tr
 from tinyvm.interpreter import run
 from tinyvm.verifier import validate
 from tinyvm.isa import Op, Instruction, Program
+from tinyvm.generators import gen_branched
+
+
+def test_gen_branched_validates_at_tier2_difficulties():
+    for seed in range(20):
+        spec = GenSpec(n=64, k=4, b=2, l=8, use_stack=False, stack_frames=0)
+        p = gen_branched(spec=spec, rng=random.Random(seed))
+        assert validate(p), f"seed={seed} failed validate"
+        trace = run(p)
+        assert trace.halted
+
+
+def test_gen_branched_emits_print_at_least_once():
+    spec = GenSpec(n=32, k=4, b=1, l=0)
+    p = gen_branched(spec=spec, rng=random.Random(0))
+    assert any(inst.op == Op.PRINT for inst in p.instructions)
+
+
+def test_gen_branched_with_stack_includes_push_pop():
+    spec = GenSpec(n=32, k=6, b=1, l=0, use_stack=True, stack_frames=1)
+    p = gen_branched(spec=spec, rng=random.Random(0))
+    assert any(inst.op == Op.PUSH for inst in p.instructions)
+    assert any(inst.op == Op.POP for inst in p.instructions)
+
+
+def test_gen_branched_loop_budget_is_respected():
+    spec = GenSpec(n=64, k=4, b=0, l=8)
+    p = gen_branched(spec=spec, rng=random.Random(0))
+    trace = run(p)
+    # Dynamic step count ≤ static length × (1 + l per static instr) is a loose
+    # upper bound; tighter bound is harder without exposing K values.
+    assert len(trace.steps) <= len(p.instructions) * (1 + spec.l)
 
 
 def test_shaping_spec_defaults_off():
