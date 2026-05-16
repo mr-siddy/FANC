@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NamedTuple
 
-from tinyvm.isa import Program, Instruction
+from tinyvm.isa import Program, Instruction, Op
 from tinyvm.interpreter import ExecutionTrace, StepRecord
 
 
@@ -90,3 +90,52 @@ def to_row(
         },
         "renders": {name: _rendered_prompt_to_dict(rp) for name, rp in renders.items()},
     }
+
+
+def _instruction_from_dict(d: dict) -> Instruction:
+    return Instruction(
+        op=Op[d["op"]],
+        args=tuple(d["args"]),
+        label=d["label"],
+        target=d["target"],
+    )
+
+
+def _step_from_dict(d: dict) -> StepRecord:
+    return StepRecord(
+        pc=d["pc"],
+        regs=tuple(d["regs"]),
+        stack=tuple(d["stack"]),
+        emitted=d["emitted"],
+    )
+
+
+def _rendered_prompt_from_dict(d: dict) -> RenderedPrompt:
+    return RenderedPrompt(
+        input_ids=list(d["input_ids"]),
+        target_ids=list(d["target_ids"]),
+        input_text=d["input_text"],
+        target_text=d["target_text"],
+    )
+
+
+def from_row(row: dict) -> Row:
+    """Inverse of to_row. Reconstructs Program, ExecutionTrace, RowMeta, renders dict."""
+    m = row["meta"]
+    meta = RowMeta(
+        tier=m["tier"],
+        split=m["split"],
+        bucket=m["bucket"],
+        seed=m["seed"],
+        axes=dict(m["axes"]),
+        renders=tuple(m["renders"]),
+    )
+    instructions = tuple(_instruction_from_dict(d) for d in row["program"])
+    program = Program.build(instructions)
+    trace = ExecutionTrace(
+        steps=[_step_from_dict(d) for d in row["trace"]["steps"]],
+        output=list(row["trace"]["output"]),
+        halted=row["trace"]["halted"],
+    )
+    renders = {name: _rendered_prompt_from_dict(d) for name, d in row["renders"].items()}
+    return Row(program=program, trace=trace, meta=meta, renders=renders)

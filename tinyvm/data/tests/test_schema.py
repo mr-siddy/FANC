@@ -110,3 +110,76 @@ def test_to_row_output_is_json_serialisable():
     # json.dumps must not raise.
     s = json.dumps(out)
     assert isinstance(s, str)
+
+
+import random
+from tinyvm.data.schema import from_row
+
+
+def test_from_row_inverts_to_row_on_simple_case():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 5)),
+        Instruction(Op.HALT),
+    ))
+    trace = ExecutionTrace(steps=[
+        StepRecord(pc=0, regs=(5,) + (0,) * 7, stack=(), emitted=None),
+        StepRecord(pc=1, regs=(5,) + (0,) * 7, stack=(), emitted=None),
+    ], output=[], halted=True)
+    meta = RowMeta(tier="tier0", split="train", bucket=None, seed=0,
+                   axes={"n": 2}, renders=("direct",))
+    rp = RenderedPrompt(input_ids=[1, 2], target_ids=[3], input_text="x", target_text="y")
+
+    out = to_row(p, trace, meta, {"direct": rp})
+    recovered = from_row(out)
+
+    assert recovered.program == p
+    assert recovered.trace.output == trace.output
+    assert recovered.trace.steps == trace.steps
+    assert recovered.trace.halted == trace.halted
+    assert recovered.meta == meta
+    assert recovered.renders == {"direct": rp}
+
+
+def test_from_row_handles_labels_and_jumps():
+    p = Program.build((
+        Instruction(Op.LOAD, args=(0, 0), label="ENTRY"),
+        Instruction(Op.JZ, args=(0,), target="ENTRY"),
+        Instruction(Op.HALT),
+    ))
+    trace = ExecutionTrace(steps=[
+        StepRecord(pc=0, regs=(0,) * 8, stack=(), emitted=None),
+    ], output=[], halted=True)
+    meta = RowMeta(tier="tier1", split="eval", bucket="len_8", seed=99,
+                   axes={"n": 3, "k": 1}, renders=())
+    out = to_row(p, trace, meta, {})
+    recovered = from_row(out)
+    assert recovered.program == p
+    assert recovered.program.instructions[0].label == "ENTRY"
+    assert recovered.program.instructions[1].target == "ENTRY"
+
+
+def test_round_trip_on_generated_programs():
+    """Round-trip property: from_row(to_row(...)) reconstructs everything bit-exactly."""
+    from tinyvm.generators import gen_register_trace, gen_counter
+    from tinyvm.interpreter import run
+
+    cases = []
+    for seed in range(20):
+        for gen in [
+            lambda s: gen_counter(n=6, rng=random.Random(s)),
+            lambda s: gen_register_trace(n=12, k=3, rng=random.Random(s)),
+        ]:
+            p = gen(seed)
+            trace = run(p)
+            cases.append(p)
+
+    for p in cases:
+        trace = run(p)
+        meta = RowMeta(tier="tier0", split="train", bucket=None, seed=0,
+                       axes={}, renders=())
+        out = to_row(p, trace, meta, {})
+        recovered = from_row(out)
+        assert recovered.program == p
+        assert recovered.trace.steps == trace.steps
+        assert recovered.trace.output == trace.output
+        assert recovered.trace.halted == trace.halted
