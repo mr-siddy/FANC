@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parse } from "@/core/parser";
 import { Op } from "@/core/isa";
+import { run } from "@/core/interpreter";
 
 describe("parser: single-line opcodes", () => {
   it("parses LOAD with negative literal", () => {
@@ -41,5 +42,36 @@ describe("parser: single-line opcodes", () => {
     expect(program).toBeUndefined();
     expect(errors).toHaveLength(1);
     expect(errors[0]!.message).toMatch(/ADD .* expects/i);
+  });
+});
+
+describe("parser: labels and jumps", () => {
+  it("parses a labelled NOP and uses it as a JZ target", () => {
+    const src = "LOAD R0 0\nJZ R0 L0\nLOAD R1 99\nL0:NOP\nHALT\n";
+    const { program, errors } = parse(src);
+    expect(errors).toEqual([]);
+    expect(program!.labelIndex.get("L0")).toBe(3);
+    expect(run(program!).steps.at(-1)!.regs[1]).toBe(0);
+  });
+
+  it("parses unconditional JMP", () => {
+    const src = "JMP L1\nLOAD R0 99\nL1:HALT\n";
+    const { program, errors } = parse(src);
+    expect(errors).toEqual([]);
+    expect(run(program!).steps.at(-1)!.regs[0]).toBe(0);
+  });
+
+  it("accepts a label on its own line", () => {
+    const src = "L0:\nLOAD R0 1\nHALT\n";
+    const { program, errors } = parse(src);
+    expect(errors).toEqual([]);
+    expect(program!.labelIndex.has("L0")).toBe(true);
+  });
+
+  it("rejects duplicate label definitions", () => {
+    const src = "L0:NOP\nL0:HALT\n";
+    const { program, errors } = parse(src);
+    expect(program).toBeUndefined();
+    expect(errors[0]!.message).toMatch(/duplicate label/);
   });
 });
