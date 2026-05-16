@@ -14,25 +14,25 @@ export function Playground() {
   const [source, setSource] = useState(lesson.source);
   const [stepIdx, setStepIdx] = useState(0);
   const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setSource(lesson.source);
     setRunning(false);
-    setError(null);
+    setStepIdx(0);
   }, [lesson]);
 
   const { program, errors } = useMemo(() => parse(source), [source]);
-  const trace: SerializedTrace | null = useMemo(() => {
-    if (!program) return null;
+  const traceResult = useMemo<{ trace: SerializedTrace | null; error: string | null }>(() => {
+    if (!program) return { trace: null, error: null };
     try {
-      setError(null);
-      return serializeTrace(run(program));
+      return { trace: serializeTrace(run(program)), error: null };
     } catch (e) {
-      if (e instanceof InterpreterError) setError(e.message);
-      return null;
+      if (e instanceof InterpreterError) return { trace: null, error: e.message };
+      return { trace: null, error: (e as Error).message };
     }
   }, [program]);
+  const trace = traceResult.trace;
+  const error = traceResult.error;
 
   useEffect(() => {
     if (!running || !trace) return;

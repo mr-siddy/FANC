@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { Compare } from "@/pages/Compare";
+import { Compare, validateBundle } from "@/pages/Compare";
 import passBundle from "../../../samples/example_pass.json";
 import divBundle from "../../../samples/example_divergence.json";
 
@@ -38,5 +38,11 @@ describe("Compare", () => {
     );
     await screen.findByTestId("div-summary");
     expect(screen.getByTestId("div-summary")).toHaveTextContent(/no divergence/i);
+  });
+
+  it("validateBundle rejects bundle missing groundTruth.trace.output", () => {
+    const bad = JSON.parse(JSON.stringify(passBundle));
+    delete bad.groundTruth.trace.output;
+    expect(validateBundle(bad)).toBe(false);
   });
 });

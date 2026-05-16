@@ -11,13 +11,22 @@ interface CompareProps {
   initialBundle?: ComparisonBundle;
 }
 
-function validateBundle(b: unknown): b is ComparisonBundle {
+export function validateBundle(b: unknown): b is ComparisonBundle {
   if (typeof b !== "object" || b === null) return false;
   const r = b as Record<string, unknown>;
-  return r.schema === "tinyvm-viz/comparison/v1"
-    && typeof r.source === "string"
-    && typeof r.groundTruth === "object"
-    && typeof r.prediction === "object";
+  if (r.schema !== "tinyvm-viz/comparison/v1") return false;
+  if (typeof r.source !== "string") return false;
+  const gt = r.groundTruth as Record<string, unknown> | null | undefined;
+  const pred = r.prediction as Record<string, unknown> | null | undefined;
+  if (!gt || typeof gt !== "object") return false;
+  const trace = gt.trace as Record<string, unknown> | null | undefined;
+  if (!trace || typeof trace !== "object") return false;
+  if (!Array.isArray(trace.steps)) return false;
+  if (!Array.isArray(trace.output)) return false;
+  if (typeof trace.halted !== "boolean") return false;
+  if (!pred || typeof pred !== "object") return false;
+  if (!Array.isArray(pred.output)) return false;
+  return true;
 }
 
 export function Compare({ initialBundle }: CompareProps) {
