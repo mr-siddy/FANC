@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ExecutionPanel } from "@/components/ExecutionPanel";
 import { DivergencePanel } from "@/components/DivergencePanel";
 import { StepControls } from "@/components/StepControls";
@@ -23,6 +24,20 @@ export function Compare({ initialBundle }: CompareProps) {
   const [bundle, setBundle] = useState<ComparisonBundle | null>(initialBundle ?? null);
   const [stepIdx, setStepIdx] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [params] = useSearchParams();
+
+  useEffect(() => {
+    const url = params.get("bundle");
+    if (!url || bundle) return;
+    fetch(url)
+      .then((r) => r.json())
+      .then((j) => {
+        if (validateBundle(j)) { setBundle(j); setStepIdx(0); }
+        else setLoadError("bundle: schema mismatch");
+      })
+      .catch((e) => setLoadError(`bundle: ${(e as Error).message}`));
+  }, [params, bundle]);
 
   type ReRunResult =
     | null
