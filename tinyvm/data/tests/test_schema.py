@@ -1,6 +1,8 @@
 import pytest
 
-from tinyvm.data.schema import RowMeta, RenderedPrompt
+from tinyvm.data.schema import Row, RowMeta, RenderedPrompt
+from tinyvm.isa import Op, Instruction, Program
+from tinyvm.interpreter import ExecutionTrace, StepRecord
 
 
 def test_rendered_prompt_is_frozen():
@@ -38,3 +40,16 @@ def test_row_meta_renders_is_tuple():
     )
     assert meta.renders == ("direct", "cot")
     assert isinstance(meta.renders, tuple)
+
+
+def test_row_namedtuple_has_four_fields():
+    p = Program.build((Instruction(Op.HALT),))
+    trace = ExecutionTrace(steps=[], output=[], halted=True)
+    meta = RowMeta(tier="tier0", split="train", bucket=None, seed=0,
+                   axes={}, renders=("direct",))
+    rp = RenderedPrompt(input_ids=[], target_ids=[], input_text="", target_text="")
+    row = Row(program=p, trace=trace, meta=meta, renders={"direct": rp})
+    assert row.program is p
+    assert row.trace is trace
+    assert row.meta is meta
+    assert row.renders == {"direct": rp}

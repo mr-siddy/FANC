@@ -5,6 +5,10 @@ Spec §5.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
+
+from tinyvm.isa import Program
+from tinyvm.interpreter import ExecutionTrace
 
 
 @dataclass(frozen=True)
@@ -25,3 +29,11 @@ class RowMeta:
     seed: int                          # row-specific seed used to derive the program
     axes: dict[str, int | bool]        # axis dial values at generation time
     renders: tuple[str, ...]           # render modes populated in this row
+
+
+class Row(NamedTuple):
+    """A loaded JSONL row: deserialised IR + metadata + populated renders."""
+    program: Program
+    trace: ExecutionTrace
+    meta: RowMeta
+    renders: dict[str, RenderedPrompt]
