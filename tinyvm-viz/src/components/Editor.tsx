@@ -6,6 +6,13 @@ import { linter, Diagnostic } from "@codemirror/lint";
 import { parse } from "@/core/parser";
 import { validate } from "@/core/verifier";
 
+const editorTheme = EditorView.theme({
+  "&": { minHeight: "12rem", fontSize: "0.875rem" },
+  ".cm-scroller": { overflow: "auto", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" },
+  ".cm-content": { padding: "8px 4px" },
+  ".cm-focused": { outline: "none" },
+});
+
 interface EditorProps {
   value: string;
   onChange: (next: string) => void;
@@ -41,6 +48,7 @@ export function Editor({ value, onChange }: EditorProps) {
         lineNumbers(),
         history(),
         highlightActiveLine(),
+        editorTheme,
         keymap.of([...defaultKeymap, ...historyKeymap]),
         linter(tinyvmLinter, { delay: 150 }),
         EditorView.updateListener.of((u) => {
