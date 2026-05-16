@@ -7,8 +7,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NamedTuple
 
-from tinyvm.isa import Program
-from tinyvm.interpreter import ExecutionTrace
+from tinyvm.isa import Program, Instruction
+from tinyvm.interpreter import ExecutionTrace, StepRecord
 
 
 @dataclass(frozen=True)
@@ -37,3 +37,56 @@ class Row(NamedTuple):
     trace: ExecutionTrace
     meta: RowMeta
     renders: dict[str, RenderedPrompt]
+
+
+def _instruction_to_dict(inst: Instruction) -> dict:
+    return {
+        "op": inst.op.name,
+        "args": list(inst.args),
+        "label": inst.label,
+        "target": inst.target,
+    }
+
+
+def _step_to_dict(step: StepRecord) -> dict:
+    return {
+        "pc": step.pc,
+        "regs": list(step.regs),
+        "stack": list(step.stack),
+        "emitted": step.emitted,
+    }
+
+
+def _rendered_prompt_to_dict(rp: RenderedPrompt) -> dict:
+    return {
+        "input_ids": list(rp.input_ids),
+        "target_ids": list(rp.target_ids),
+        "input_text": rp.input_text,
+        "target_text": rp.target_text,
+    }
+
+
+def to_row(
+    program: Program,
+    trace: ExecutionTrace,
+    meta: RowMeta,
+    renders: dict[str, RenderedPrompt],
+) -> dict:
+    """Serialise to a JSON-able dict. Pure function; no I/O."""
+    return {
+        "meta": {
+            "tier": meta.tier,
+            "split": meta.split,
+            "bucket": meta.bucket,
+            "seed": meta.seed,
+            "axes": dict(meta.axes),
+            "renders": list(meta.renders),
+        },
+        "program": [_instruction_to_dict(inst) for inst in program.instructions],
+        "trace": {
+            "steps": [_step_to_dict(s) for s in trace.steps],
+            "output": list(trace.output),
+            "halted": trace.halted,
+        },
+        "renders": {name: _rendered_prompt_to_dict(rp) for name, rp in renders.items()},
+    }
