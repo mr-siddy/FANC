@@ -1,0 +1,17 @@
+{
+  "schema": "tinyvm-viz/comparison/v1",
+  "meta": { "generator": "manual", "seed": 1 },
+  "source": "LOAD R0 5\nPRINT R0\nHALT\n",
+  "groundTruth": {
+    "trace": {
+      "steps": [
+        { "pc": 0, "regs": [5,0,0,0,0,0,0,0], "stack": [], "emitted": null },
+        { "pc": 1, "regs": [5,0,0,0,0,0,0,0], "stack": [], "emitted": 5 },
+        { "pc": 2, "regs": [5,0,0,0,0,0,0,0], "stack": [], "emitted": null }
+      ],
+      "output": [5],
+      "halted": true
+    }
+  },
+  "prediction": { "output": [7] }
+}
