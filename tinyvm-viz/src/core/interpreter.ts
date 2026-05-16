@@ -19,7 +19,8 @@ export interface ExecutionTrace {
 function clamp(v: number): number {
   if (v < VAL_MIN) return VAL_MIN;
   if (v > VAL_MAX) return VAL_MAX;
-  return v;
+  // Normalize -0 to 0 to match Python semantics.
+  return v === 0 ? 0 : v;
 }
 
 function truncDiv(a: number, b: number): number {

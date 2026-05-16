@@ -52,7 +52,21 @@ function stripComment(line: string): string {
 }
 
 function tokenise(line: string): string[] {
-  return stripComment(line).trim().split(/\s+/).filter((t) => t.length > 0);
+  // Split on whitespace first, then further split any token at an embedded '-'
+  // that is not at position 0.  This handles the Python renderer's MINUS-attachment
+  // style where e.g. "LOAD R0-93" is emitted instead of "LOAD R0 -93".
+  const raw = stripComment(line).trim().split(/\s+/).filter((t) => t.length > 0);
+  const out: string[] = [];
+  for (const tok of raw) {
+    const dashIdx = tok.indexOf("-", 1); // skip position 0 (leading minus is fine)
+    if (dashIdx > 0) {
+      out.push(tok.slice(0, dashIdx));
+      out.push(tok.slice(dashIdx));
+    } else {
+      out.push(tok);
+    }
+  }
+  return out;
 }
 
 function parseReg(tok: string): number | null {
