@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderProgramText } from "@/core/tokeniser";
 import { buildProgram, Op } from "@/core/isa";
+import { parse } from "@/core/parser";
 
 describe("tokeniser: renderProgramText (canonical form)", () => {
   it("renders LOAD with negative literal", () => {
@@ -24,5 +25,22 @@ describe("tokeniser: renderProgramText (canonical form)", () => {
       { op: Op.NOP, args: [], label: "L7" },
     ]);
     expect(renderProgramText(p)).toBe("JZ R1 L7\nL7:NOP\n");
+  });
+});
+
+describe("tokeniser/parser round-trip", () => {
+  it("parse(render(p)) preserves structure", () => {
+    const p = buildProgram([
+      { op: Op.LOAD, args: [0, 5] },
+      { op: Op.ADD, args: [1, 0, 0] },
+      { op: Op.JZ, args: [1], target: "L0" },
+      { op: Op.PRINT, args: [1] },
+      { op: Op.NOP, args: [], label: "L0" },
+      { op: Op.HALT, args: [] },
+    ]);
+    const text = renderProgramText(p);
+    const { program, errors } = parse(text);
+    expect(errors).toEqual([]);
+    expect(program!.instructions).toEqual(p.instructions);
   });
 });
