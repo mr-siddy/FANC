@@ -1,4 +1,5 @@
-import { DEFAULT_STEP_CAP, NUM_REGS, Op, Program, STACK_DEPTH, VAL_MAX, VAL_MIN, isUserop } from "./isa";
+import { DEFAULT_STEP_CAP, NUM_REGS, Op, Program, STACK_DEPTH, VAL_MAX, VAL_MIN } from "./isa";
+import type { SerializedStep, SerializedTrace } from "./types";
 
 export class InterpreterError extends Error {}
 
@@ -151,8 +152,6 @@ export function run(program: Program, stepCap: number | null = DEFAULT_STEP_CAP)
 
   return { steps, output, halted: true };
 }
-
-import type { SerializedStep, SerializedTrace } from "./types";
 
 export function serializeTrace(t: ExecutionTrace): SerializedTrace {
   return {
