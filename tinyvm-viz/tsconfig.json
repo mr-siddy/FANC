@@ -12,6 +12,7 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
+    "noEmit": true,
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] },
     "types": ["node", "vitest/globals", "@testing-library/jest-dom"]
