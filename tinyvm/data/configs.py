@@ -81,3 +81,58 @@ TIER1 = DatasetConfig(
     build=_tier1_build,
     renders=("direct",),
 )
+
+
+# ---- Tier 2 ----
+
+from tinyvm.generators import gen_branched, GenSpec
+
+
+def _tier2_train_axes(rng: _random.Random) -> dict[str, int | bool]:
+    return {
+        "n": rng.randint(16, 256),
+        "k": rng.choice([4, 6, 8]),
+        "b": rng.randint(1, 8),
+        "l": rng.randint(0, 16),
+        "use_stack": rng.random() < 0.5,
+        "stack_frames": rng.randint(0, 2),
+    }
+
+
+def _tier2_build(rng: _random.Random, axes: dict[str, int | bool]) -> Program:
+    return gen_branched(
+        spec=GenSpec(
+            n=axes["n"], k=axes["k"], b=axes["b"], l=axes["l"],
+            use_stack=bool(axes["use_stack"]), stack_frames=axes["stack_frames"],
+        ),
+        rng=rng,
+    )
+
+
+TIER2 = DatasetConfig(
+    tier="tier2",
+    train_size=500_000,
+    train_axes=_tier2_train_axes,
+    eval_buckets=(
+        EvalBucket(name="easy",
+                   size=10_000,
+                   fixed_axes={"n": 32, "k": 4, "b": 1, "l": 0, "use_stack": False, "stack_frames": 0}),
+        EvalBucket(name="medium",
+                   size=10_000,
+                   fixed_axes={"n": 64, "k": 4, "b": 2, "l": 4, "use_stack": False, "stack_frames": 0}),
+        EvalBucket(name="hard",
+                   size=10_000,
+                   fixed_axes={"n": 128, "k": 6, "b": 4, "l": 8, "use_stack": True, "stack_frames": 1}),
+        EvalBucket(name="ood_len_256",
+                   size=10_000,
+                   fixed_axes={"n": 256, "k": 4, "b": 2, "l": 4, "use_stack": False, "stack_frames": 0}),
+    ),
+    build=_tier2_build,
+    renders=("direct", "cot"),
+)
+
+
+# TODO Tier 4: gen_userop_trace returns UseropTrace (demos + target), not a
+# single Program. Needs a row-variant schema. Defer to follow-up.
+
+CONFIGS: dict[str, DatasetConfig] = {"tier0": TIER0, "tier1": TIER1, "tier2": TIER2}

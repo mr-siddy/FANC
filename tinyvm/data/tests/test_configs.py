@@ -64,3 +64,43 @@ def test_tier1_build_produces_valid_programs():
         p = TIER1.build(rng, axes)
         assert validate(p)
         assert run(p).halted
+
+
+from tinyvm.data.configs import TIER2, CONFIGS
+
+
+def test_tier2_config_metadata():
+    assert TIER2.tier == "tier2"
+    assert TIER2.train_size == 500_000
+    bucket_names = tuple(b.name for b in TIER2.eval_buckets)
+    assert bucket_names == ("easy", "medium", "hard", "ood_len_256")
+    for b in TIER2.eval_buckets:
+        assert b.size == 10_000
+    assert TIER2.renders == ("direct", "cot")
+
+
+def test_tier2_build_produces_valid_programs():
+    # Build a handful at varying axes. gen_branched requires k >= 2; train_axes guarantees k in [4,8].
+    for seed in range(10):
+        rng = random.Random(seed)
+        axes = TIER2.train_axes(rng)
+        assert axes["k"] in (4, 6, 8)
+        p = TIER2.build(rng, axes)
+        assert validate(p)
+        assert run(p).halted
+
+
+def test_tier2_eval_buckets_build_validly():
+    for bucket in TIER2.eval_buckets:
+        for seed in range(5):
+            rng = random.Random(seed * 7 + hash(bucket.name) % 10_000)
+            p = TIER2.build(rng, dict(bucket.fixed_axes))
+            assert validate(p), f"bucket={bucket.name} seed={seed} failed validate"
+            assert run(p).halted
+
+
+def test_configs_registry_has_three_tiers():
+    assert set(CONFIGS.keys()) == {"tier0", "tier1", "tier2"}
+    assert CONFIGS["tier0"] is TIER0
+    assert CONFIGS["tier1"] is TIER1
+    assert CONFIGS["tier2"] is TIER2
