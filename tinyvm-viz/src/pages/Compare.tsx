@@ -7,6 +7,14 @@ import { parse } from "@/core/parser";
 import { deserializeTrace, run, serializeTrace } from "@/core/interpreter";
 import type { ComparisonBundle, SerializedTrace } from "@/core/types";
 
+const sampleModules = import.meta.glob<ComparisonBundle>(
+  "/samples/*.json",
+  { eager: true, import: "default" },
+);
+const samples = Object.entries(sampleModules)
+  .map(([path, bundle]) => ({ filename: path.split("/").pop()!, bundle }))
+  .sort((a, b) => a.filename.localeCompare(b.filename));
+
 interface CompareProps {
   initialBundle?: ComparisonBundle;
 }
@@ -93,11 +101,29 @@ export function Compare({ initialBundle }: CompareProps) {
     return (
       <div className="p-4 space-y-3">
         <h2 className="text-lg font-semibold">Comparison view</h2>
-        <input
-          type="file"
-          accept="application/json"
-          onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0]!)}
-        />
+        <div className="flex items-center gap-3">
+          <label className="text-sm">Load a sample:</label>
+          <select
+            data-testid="samples-select"
+            className="border border-slate-200 rounded px-2 py-1 text-sm"
+            defaultValue=""
+            onChange={(e) => {
+              const choice = samples.find((s) => s.filename === e.target.value);
+              if (choice) { setBundle(choice.bundle); setStepIdx(0); }
+            }}
+          >
+            <option value="" disabled>Choose a sample…</option>
+            {samples.map((s) => (
+              <option key={s.filename} value={s.filename}>{s.filename}</option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-500">or drop a file:</span>
+          <input
+            type="file"
+            accept="application/json"
+            onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0]!)}
+          />
+        </div>
         {loadError && <div className="text-red-600 text-sm">{loadError}</div>}
       </div>
     );

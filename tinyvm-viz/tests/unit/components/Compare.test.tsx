@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Compare, validateBundle } from "@/pages/Compare";
 import passBundle from "../../../samples/example_pass.json";
@@ -70,5 +70,20 @@ describe("Compare", () => {
     const noErrMeta = { ...faultBundle, meta: { generator: "manual", seed: 3 } };
     renderInRouter(<Compare initialBundle={noErrMeta as never} />);
     expect(screen.getByTestId("fault-banner")).toHaveTextContent(/halted before completion/i);
+  });
+
+  it("renders a samples dropdown listing every samples/*.json", () => {
+    renderInRouter(<Compare />);
+    const select = screen.getByTestId("samples-select") as HTMLSelectElement;
+    const filenames = Array.from(select.options).map((o) => o.value);
+    expect(filenames).toContain("example_pass.json");
+    expect(filenames).toContain("example_divergence.json");
+  });
+
+  it("selecting a sample loads that bundle", () => {
+    renderInRouter(<Compare />);
+    const select = screen.getByTestId("samples-select") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "example_divergence.json" } });
+    expect(screen.getByTestId("div-summary")).toHaveTextContent(/first divergence at #0/i);
   });
 });
