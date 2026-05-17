@@ -69,3 +69,56 @@ def test_build_renders_unknown_mode_raises():
     trace = run(p)
     with pytest.raises(KeyError):
         _build_renders(p, trace, ("not_a_mode",))
+
+
+import json
+import hashlib
+from pathlib import Path
+from tinyvm.data.emit import _emit_split
+from tinyvm.data.configs import TIER0
+
+
+def test_emit_split_writes_n_rows_to_file(tmp_path: Path):
+    out_path = tmp_path / "train.jsonl"
+    n, h = _emit_split(TIER0, out_path, split="train", bucket=None,
+                       n_rows=5, seed_base=0)
+    assert n == 5
+    assert isinstance(h, str) and len(h) == 64
+    assert out_path.exists()
+    lines = out_path.read_text().splitlines()
+    assert len(lines) == 5
+    # Each line is a valid JSON object with the expected top-level keys.
+    for line in lines:
+        row = json.loads(line)
+        assert set(row.keys()) == {"meta", "program", "trace", "renders"}
+        assert row["meta"]["tier"] == "tier0"
+        assert row["meta"]["split"] == "train"
+        assert row["meta"]["bucket"] is None
+
+
+def test_emit_split_sha256_matches_file_content(tmp_path: Path):
+    out_path = tmp_path / "train.jsonl"
+    _, h = _emit_split(TIER0, out_path, split="train", bucket=None,
+                       n_rows=3, seed_base=0)
+    recomputed = hashlib.sha256(out_path.read_bytes()).hexdigest()
+    assert h == recomputed
+
+
+def test_emit_split_eval_uses_fixed_axes(tmp_path: Path):
+    bucket = TIER0.eval_buckets[0]
+    out_path = tmp_path / f"{bucket.name}.jsonl"
+    _emit_split(TIER0, out_path, split="eval", bucket=bucket,
+                n_rows=3, seed_base=0)
+    for line in out_path.read_text().splitlines():
+        row = json.loads(line)
+        assert row["meta"]["split"] == "eval"
+        assert row["meta"]["bucket"] == bucket.name
+        assert row["meta"]["axes"] == {"n": 8}    # TIER0's bucket has fixed n=8
+
+
+def test_emit_split_is_deterministic(tmp_path: Path):
+    a = tmp_path / "a.jsonl"
+    b = tmp_path / "b.jsonl"
+    _emit_split(TIER0, a, split="train", bucket=None, n_rows=4, seed_base=42)
+    _emit_split(TIER0, b, split="train", bucket=None, n_rows=4, seed_base=42)
+    assert a.read_bytes() == b.read_bytes()
