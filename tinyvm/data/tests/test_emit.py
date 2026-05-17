@@ -192,3 +192,29 @@ def test_cli_emit_with_unknown_tier_exits_nonzero(tmp_path: Path):
     )
     assert result.returncode != 0
     assert "tier99" in result.stderr or "tier99" in result.stdout
+
+
+def test_cli_verify_returns_0_on_fresh_emit(tmp_path: Path):
+    cfg = _tiny_config()
+    emit(cfg, tmp_path, seed_base=0)
+    result = subprocess.run(
+        [sys.executable, "-m", "tinyvm.data", "verify",
+         "--dataset", str(tmp_path / "tier0")],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, f"verify failed: {result.stderr}"
+
+
+def test_cli_verify_returns_2_on_corrupted_file(tmp_path: Path):
+    cfg = _tiny_config()
+    emit(cfg, tmp_path, seed_base=0)
+    # Corrupt the train file.
+    train_path = tmp_path / "tier0" / "train.jsonl"
+    train_path.write_text("corrupted line\n" + train_path.read_text())
+    result = subprocess.run(
+        [sys.executable, "-m", "tinyvm.data", "verify",
+         "--dataset", str(tmp_path / "tier0")],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2
+    assert "train.jsonl" in result.stderr or "train.jsonl" in result.stdout
