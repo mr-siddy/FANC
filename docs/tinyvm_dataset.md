@@ -17,12 +17,13 @@ For the underlying Tiny-VM module — ISA, interpreter, generators, tokeniser �
 7. [CLI reference](#7-cli-reference)
 8. [Live dataset: Genesis-AI-Labs/tinyvm-tier1](#8-live-dataset-genesis-ai-labstinyvm-tier1)
 9. [Statistics and visualisations](#9-statistics-and-visualisations)
-10. [Access patterns and code samples](#10-access-patterns-and-code-samples)
-11. [Performance characteristics](#11-performance-characteristics)
-12. [Storage and footprint](#12-storage-and-footprint)
-13. [Generating your own datasets](#13-generating-your-own-datasets)
-14. [Deferred work](#14-deferred-work)
-15. [References](#15-references)
+10. [**Concrete examples from the live dataset**](#10-concrete-examples-from-the-live-dataset)
+11. [Access patterns and code samples](#11-access-patterns-and-code-samples)
+12. [Performance characteristics](#12-performance-characteristics)
+13. [Storage and footprint](#13-storage-and-footprint)
+14. [Generating your own datasets](#14-generating-your-own-datasets)
+15. [Deferred work](#15-deferred-work)
+16. [References](#16-references)
 
 ---
 
@@ -36,7 +37,7 @@ The Tiny-VM data pipeline is organised as a **6-tier curriculum** — a sequence
 | **1** | ✅ shipped + **live on Hub** | `gen_register_trace` | 200K | 7×20K = 140K | `direct` | Register file tracking, length generalisation |
 | **2** | ✅ shipped | `gen_branched` | 500K | 4×10K = 40K | `direct` + `cot` | Branches, loops, optional stack; chain-of-thought |
 | 3 | (intentional gap) | — | — | — | — | Reserved for an intermediate variant if needed |
-| 4 | ⏸ deferred | `gen_userop_trace` | — | — | `userop_direct`, `userop_with_decomposition` | Few-shot userop induction. Needs a row-variant schema (see §14) |
+| 4 | ⏸ deferred | `gen_userop_trace` | — | — | `userop_direct`, `userop_with_decomposition` | Few-shot userop induction. Needs a row-variant schema (see §15) |
 | 5 | ⏸ future | — | — | — | — | Hand-off to Qwen-class models (uses `_text` renders) |
 
 **Status legend:**
@@ -338,7 +339,7 @@ def _row_seed(seed_base: int, split: str, bucket: str | None, index: int) -> int
 Every row gets a unique seed derived from the four-tuple `(seed_base, split, bucket, index)`. Properties:
 
 - **Collision-resistant**: SHA-256 over a delimited input makes accidental collisions vanishingly unlikely. The pipe `|` separator prevents prefix-collision attacks.
-- **64-bit, unsigned**: full range `[0, 2^64 - 1]`. Stored as `uint64` in the HF Parquet schema (float64 would silently truncate to 53 bits — see §10).
+- **64-bit, unsigned**: full range `[0, 2^64 - 1]`. Stored as `uint64` in the HF Parquet schema (float64 would silently truncate to 53 bits — see §11).
 - **No leakage**: train and eval rows with the same index get different seeds because `split` differs.
 
 ### 5.2 The reseed contract
@@ -604,7 +605,224 @@ Per-program randomisation of which `k` registers are active avoids the positiona
 
 ---
 
-## 10. Access patterns and code samples
+## 10. Concrete examples from the live dataset
+
+All examples below are **actual rows from `Genesis-AI-Labs/tinyvm-tier1`** (seed_base=0). They are reproducible bit-exactly: paste the seed and axes into `TIER1.build(random.Random(seed), axes)` and you get the same program back.
+
+These examples were selected by `scripts/find_dataset_examples.py` to be **pedagogically useful** — non-zero output, multiple opcodes, observable register evolution, with concrete demonstrations of clamping and div-by-zero semantics.
+
+### 10.1 A short train example (n=14, k=2) — walked end-to-end
+
+**Row identity:**
+- Split: `train`, bucket: `None`
+- `meta.seed = 3896364871974659895`
+- `meta.axes = {"n": 14, "k": 2}`
+- Total program length: 16 instructions (n=14 body + PRINT + HALT)
+- Output: `[1]`
+- Input tokens: 50, target tokens: 4
+
+With `k=2`, the generator allocated **R1 and R3** as active. Every fill instruction writes to one of these; other registers stay at 0 throughout.
+
+```
+                                          R1     R3   ← values BEFORE this instruction
+  [ 0] ADD   R3 R1 R1   # R3 ← R1 + R1   0      0     → R3 = 0
+  [ 1] NEG   R1 R1      # R1 ← -R1       0      0     → R1 = 0
+  [ 2] EQ    R3 R1 R1   # R3 ← R1 == R1  0      0     → R3 = 1   (true)
+  [ 3] SUB   R1 R1 R3   # R1 ← R1 - R3   0      1     → R1 = -1
+  [ 4] DIV   R1 R1 R1   # R1 ← R1 // R1  -1     1     → R1 = 1   (-1 ÷ -1 = 1, safe)
+  [ 5] NEG   R1 R1      # R1 ← -R1       1      1     → R1 = -1
+  [ 6] MOV   R1 R3      # R1 ← R3        -1     1     → R1 = 1
+  [ 7] LOAD  R3 -76     # R3 ← clamp(-76) 1     1     → R3 = -76
+  [ 8] SUB   R3 R3 R1   # R3 ← R3 - R1   1     -76    → R3 = -77
+  [ 9] NEG   R3 R3      # R3 ← -R3       1     -77    → R3 = 77
+  [10] MUL   R3 R3 R3   # R3 ← R3 × R3   1      77    → R3 = 1023  ★ CLAMPED (77² = 5929 → 1023)
+  [11] LT    R3 R1 R3   # R3 ← R1 < R3   1     1023   → R3 = 1     (1 < 1023 is true)
+  [12] LOAD  R3 116     # R3 ← 116       1      1     → R3 = 116
+  [13] DIV   R1 R1 R1   # R1 ← R1 // R1  1     116    → R1 = 1     (1 ÷ 1)
+  [14] PRINT R1         # emit R1        1     116    → output [1]
+  [15] HALT
+```
+
+**Surface render** (what the model actually sees as `input_text`):
+
+```
+ADD R3 R1 R1 
+NEG R1 R1 
+EQ R3 R1 R1 
+SUB R1 R1 R3 
+DIV R1 R1 R1 
+NEG R1 R1 
+MOV R1 R3 
+LOAD R3-76
+SUB R3 R3 R1 
+NEG R3 R3 
+MUL R3 R3 R3 
+LT R3 R1 R3 
+LOAD R3 116
+DIV R1 R1 R1 
+PRINT R1 
+HALT 
+```
+
+**Target text:** `"1\n"`
+
+**Key teaching moments embedded in this single row:**
+- Step 4: safe self-division (-1 ÷ -1 = 1)
+- Step 7: literal LOAD with negative value (note surface form `R3-76`)
+- Step 10: arithmetic clamping in action (77² overflows → clamped to 1023)
+- Step 13: integer division (1 ÷ 1 = 1, no rounding artefacts)
+
+### 10.2 An eval_len_8 example (n=8, k=4) — short OOD-friendly
+
+**Row identity:**
+- Bucket: `len_8`, seed `16891817541285102663`, axes `{n: 8, k: 4}`
+- Output: `[94]`
+
+```
+                                          R0  R3   R4   R5   ← active set is {R0, R3, R4, R5}
+  [ 0] ADD   R5 R0 R3   # R5 ← R0 + R3    0   0    0    0     → R5 = 0
+  [ 1] LT    R4 R3 R3   # R4 ← R3 < R3    0   0    0    0     → R4 = 0
+  [ 2] MOV   R4 R0      # R4 ← R0         0   0    0    0     → R4 = 0
+  [ 3] SUB   R3 R3 R3   # R3 ← R3 - R3    0   0    0    0     → R3 = 0
+  [ 4] EQ    R3 R5 R3   # R3 ← R5 == R3   0   0    0    0     → R3 = 1   (true)
+  [ 5] LOAD  R5 41      # R5 ← 41         0   1    0    0     → R5 = 41
+  [ 6] MUL   R5 R5 R5   # R5 ← R5 × R5    0   1    0    41    → R5 = 1023  ★ CLAMPED (41² = 1681 → 1023)
+  [ 7] LOAD  R5 94      # R5 ← 94         0   1    0    1023  → R5 = 94    (overwrites the clamped value)
+  [ 8] PRINT R5         # emit R5         0   1    0    94    → output [94]
+  [ 9] HALT
+```
+
+What this row teaches: **the final output is the last literal LOADed into the print target**. Steps 0–4 build up state in registers that never get printed; step 6 clamps then gets immediately overwritten by step 7. The model has to learn that PRINT reflects the most-recent write to its argument register, not anything earlier.
+
+### 10.3 A mid-length eval example (n=32, k=4)
+
+**Row identity:**
+- Bucket: `len_32`, seed `16776626549407003910`, axes `{n: 32, k: 4}`
+- Program length: 34 instructions; Output: `[2]`
+- Input tokens: **162**, target tokens: 4
+
+Full programs of this length are large but uniform — the same fill loop just runs longer. Showing the first 5 and last 3 instructions for orientation:
+
+```
+First 5 instructions:
+  [ 0] LOAD  R5 124      → R5 = 124
+  [ 1] ADD   R4 R2 R7   (zero context — R2, R7 still 0)
+  [ 2] NEG   R2 R7      → R2 = 0
+  [ 3] SUB   R5 R7 R5   → R5 = -124   (0 - 124)
+  [ 4] LT    R2 R4 R5   → R2 = 0      (0 < -124 is false)
+  ...
+  (27 more instructions; full surface text is 162 tokens)
+  ...
+Last 3 instructions:
+  [31] ADD   R7 R7 R4   → R7 = 2      (final write before PRINT)
+  [32] PRINT R7         → emit 2
+  [33] HALT
+```
+
+**Opcodes that appear in this single program:** `ADD, SUB, MUL, DIV, NEG, LOAD, MOV, EQ, LT, PRINT, HALT` — 11 of the 16 base opcodes. A model trained on this kind of row gets exposure to **every Tier 1 opcode in a single sample**.
+
+### 10.4 A length-OOD example (n=128, k=4) — context window stress
+
+**Row identity:**
+- Bucket: `len_128`, seed `8990303884046191879`, axes `{n: 128, k: 4}`
+- Program length: 130 instructions; Output: `[-23]`
+- **Input tokens: 636**, target tokens: 6
+
+This is what a model needs to fit in its context window to handle the hardest bucket. Train never saw a program longer than `n=32` (34 instructions, ~165 tokens); here we're testing 4× that.
+
+```
+First 5 instructions:
+  [  0] EQ    R3 R2 R5     → R3 = 1
+  [  1] LT    R3 R1 R2     → R3 = 0
+  [  2] SUB   R5 R1 R5     → R5 = 0
+  [  3] LT    R1 R2 R2     → R1 = 0
+  [  4] LT    R3 R1 R1     → R3 = 0
+  ...
+  (123 more instructions; the trace evolves through many register states)
+  ...
+Last 3 instructions:
+  [127] LOAD  R2 -23   → R2 = -23  (the print target gets loaded with a literal at the end)
+  [128] PRINT R2       → emit -23
+  [129] HALT
+```
+
+**Final register snapshot at HALT:** `R1=-106, R2=-23, R3=121, R5=-45` — four registers carrying meaningful state through the whole computation. The model must track these values across 130 instructions and predict the right register to read at PRINT.
+
+### 10.5 Demonstration: arithmetic clamping
+
+The Tiny-VM clamps arithmetic to `[-1024, 1023]` rather than wrapping or trapping. To see this in action, here's a real row (bucket `len_32`, seed `8277398462194440562`) where clamping fires explicitly:
+
+```
+... earlier setup ...
+  [10] MUL  R7 R7 R3    R7 was 1, R3 was 1023   → R7 = 1023    (no clamp; product fits)
+  [11] NEG  R5 R5       R5 was -1024             → R5 = 1023    (∗ clamping: -(-1024) = 1024 → 1023)
+  [12] ...
+```
+
+The `NEG` of `-1024` is `1024`, which exceeds `VAL_MAX = 1023` by one — so it clamps to `1023`. This is the **only** way to observe the asymmetric value range (`[-1024, 1023]` has 2049 values, not 2048): negating `VAL_MIN` would overflow.
+
+Programs that hit clamping frequently are not uncommon — across the 160K analysed rows, **clamping fires in roughly 1 in 3 programs** (driven mostly by `MUL` overflow). A model that learns Tiny-VM has to internalise this saturation behaviour.
+
+### 10.6 Demonstration: division-by-zero handling
+
+The Tiny-VM returns 0 from `DIV` when the divisor is 0 (no trap). A real row demonstrating this (bucket `len_16`, seed `13286381748456458952`):
+
+```
+... earlier setup, registers all 0 ...
+  [ 4] DIV  R5 R2 R5    R2=0, R5=0   → R5 = 0    (∗ div-by-zero: returns 0)
+  [ 5] ...
+  [ 8] DIV  R7 R6 R7    R6=0, R7=0   → R7 = 0    (∗ div-by-zero again)
+  [ 9] DIV  R7 R7 R2    R7=0, R2=0   → R7 = 0    (∗ third one)
+  ...
+  [15] MUL  R7 R6 R7    final write
+  [16] PRINT R7         → emit 1023   (the program clamps elsewhere to produce 1023!)
+  [17] HALT
+```
+
+What this row shows: even though DIV-by-zero **silently returns 0**, the program flow continues normally. Later instructions can write meaningful values into the same register. The final output (1023) comes from a downstream `MUL` clamping, not from the divisions.
+
+The div-by-zero rule (return 0) is what lets the verifier avoid having to statically prove "no divisor is ever 0" — a hard analysis in general. The cost is one weird semantic the model has to learn; the benefit is the entire verifier doesn't need a divisor-analysis pass.
+
+### 10.7 At-a-glance comparison table
+
+| Example | Split | Bucket | n | k | Insts | Input toks | Output | Special feature |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| 10.1 short train | train | – | 14 | 2 | 16 | 50 | 1 | Walked end-to-end; clamping at step 10 |
+| 10.2 eval_len_8 | eval | len_8 | 8 | 4 | 10 | 46 | 94 | PRINT reflects last write; intermediate clamping |
+| 10.3 eval_len_32 | eval | len_32 | 32 | 4 | 34 | 162 | 2 | Uses 11 distinct opcodes |
+| 10.4 eval_len_128 | eval | len_128 | 128 | 4 | 130 | 636 | -23 | 4× training length; context-window stress |
+| 10.5 clamping | eval | len_32 | 32 | 4 | 34 | 168 | -1 | `NEG(-1024) → 1023` |
+| 10.6 div-by-zero | eval | len_16 | 16 | 4 | 18 | 88 | 1023 | Multiple DIV-by-0 events, final clamp |
+
+### 10.8 Reproducing any example
+
+Given any row's `(meta.seed, meta.axes)`, you can rebuild the program from scratch:
+
+```python
+import random
+from tinyvm.data.configs import TIER1
+from tinyvm.interpreter import run
+from tinyvm import tokeniser
+
+# Example 10.1's identity
+seed = 3896364871974659895
+axes = {"n": 14, "k": 2}
+
+# Bit-exact reconstruction
+program = TIER1.build(random.Random(seed), axes)
+trace = run(program)
+input_ids, target_ids = tokeniser.render_direct(program, trace)
+
+assert trace.output == [1]                    # output matches row
+assert len(program.instructions) == 16        # n + 2 (PRINT + HALT)
+assert len(input_ids) == 50                   # surface tokens match
+```
+
+This works for **every row** in the dataset — train and eval, all 7 buckets. The full reproducibility chain is documented in §5.
+
+---
+
+## 11. Access patterns and code samples
 
 ### 10.1 Native HuggingFace `datasets` (recommended for training)
 
@@ -695,7 +913,7 @@ This is the contract that `_emit_split`'s reseed fix enforces. Useful if you wan
 
 ---
 
-## 11. Performance characteristics
+## 12. Performance characteristics
 
 Measured on the M-series Mac used during development:
 
@@ -721,7 +939,7 @@ For training, **always prefer `load_prompts`** unless you actually need the IR.
 
 ---
 
-## 12. Storage and footprint
+## 13. Storage and footprint
 
 ### 12.1 Tier 1 file sizes
 
@@ -753,7 +971,7 @@ Total Hub footprint: ~2.5 GB. Trivial for a research dataset.
 
 ---
 
-## 13. Generating your own datasets
+## 14. Generating your own datasets
 
 ### 13.1 Emit a tier locally
 
@@ -802,7 +1020,7 @@ For Tier 2 specifically, the `renders` block contains both `direct` and `cot`, s
 
 ---
 
-## 14. Deferred work
+## 15. Deferred work
 
 Documented with TODO comments in the code:
 
@@ -818,7 +1036,7 @@ Documented with TODO comments in the code:
 
 ---
 
-## 15. References
+## 16. References
 
 - **Spec:** `docs/superpowers/specs/2026-05-16-tinyvm-data-pipeline-design.md` — design doc this pipeline implements.
 - **Plan:** `docs/superpowers/plans/2026-05-16-tinyvm-data-pipeline.md` — 18-task implementation plan.
