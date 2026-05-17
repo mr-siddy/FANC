@@ -1,0 +1,19 @@
+{
+  "schema": "tinyvm-viz/comparison/v1",
+  "meta": {
+    "generator": "manual",
+    "seed": 2,
+    "interpreterError": "stack underflow at step 0"
+  },
+  "source": "POP R0\nHALT\n",
+  "groundTruth": {
+    "trace": {
+      "steps": [
+        { "pc": 0, "regs": [0, 0, 0, 0, 0, 0, 0, 0], "stack": [], "emitted": null }
+      ],
+      "output": [],
+      "halted": false
+    }
+  },
+  "prediction": { "output": [] }
+}
