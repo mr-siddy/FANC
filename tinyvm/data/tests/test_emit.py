@@ -210,7 +210,10 @@ def test_cli_verify_returns_2_on_corrupted_file(tmp_path: Path):
     emit(cfg, tmp_path, seed_base=0)
     # Corrupt the train file.
     train_path = tmp_path / "tier0" / "train.jsonl"
-    train_path.write_text("corrupted line\n" + train_path.read_text())
+    train_path.write_text(
+        "corrupted line\n" + train_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     result = subprocess.run(
         [sys.executable, "-m", "tinyvm.data", "verify",
          "--dataset", str(tmp_path / "tier0")],
