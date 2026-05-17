@@ -121,6 +121,8 @@ def _read_git_commit() -> str:
         return "unknown"
 
 
+# TODO: multi-process — spec §3 decision 5 documents a future --workers N flag.
+# Single-process is fine for Day 3 (Tier 2 worst case ~2-4 h); parallelise per-row when needed.
 def emit(config: DatasetConfig, out_dir: Path, seed_base: int = 0) -> Path:
     """Emit a full dataset to out_dir/<config.tier>/. Returns the path to manifest.json.
 

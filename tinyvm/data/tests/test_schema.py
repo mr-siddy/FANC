@@ -160,7 +160,7 @@ def test_from_row_handles_labels_and_jumps():
 
 def test_round_trip_on_generated_programs():
     """Round-trip property: from_row(to_row(...)) reconstructs everything bit-exactly."""
-    from tinyvm.generators import gen_register_trace, gen_counter
+    from tinyvm.generators import gen_register_trace, gen_counter, gen_branched, GenSpec
     from tinyvm.interpreter import run
 
     cases = []
@@ -168,6 +168,10 @@ def test_round_trip_on_generated_programs():
         for gen in [
             lambda s: gen_counter(n=6, rng=random.Random(s)),
             lambda s: gen_register_trace(n=12, k=3, rng=random.Random(s)),
+            lambda s: gen_branched(
+                spec=GenSpec(n=16, k=4, b=1, l=0, use_stack=False, stack_frames=0),
+                rng=random.Random(s),
+            ),
         ]:
             p = gen(seed)
             trace = run(p)

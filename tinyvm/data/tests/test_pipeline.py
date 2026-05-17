@@ -7,6 +7,7 @@ from tinyvm.data.configs import EvalBucket, DatasetConfig
 from tinyvm.data.configs import (
     _tier0_train_axes, _tier0_build,
     _tier1_train_axes, _tier1_build,
+    _tier2_train_axes, _tier2_build,
 )
 from tinyvm.data.emit import emit
 from tinyvm.data.load import load_jsonl
@@ -27,6 +28,19 @@ def _tiny_tier1():
         tier="tier1", train_size=10, train_axes=_tier1_train_axes,
         eval_buckets=(EvalBucket(name="len_16", size=5, fixed_axes={"n": 16, "k": 4}),),
         build=_tier1_build, renders=("direct",),
+    )
+
+
+def _tiny_tier2():
+    """A miniature TIER2 with both direct + cot renders for fast integration tests."""
+    return DatasetConfig(
+        tier="tier2", train_size=5, train_axes=_tier2_train_axes,
+        eval_buckets=(
+            EvalBucket(name="easy", size=3,
+                       fixed_axes={"n": 32, "k": 4, "b": 1, "l": 0,
+                                   "use_stack": False, "stack_frames": 0}),
+        ),
+        build=_tier2_build, renders=("direct", "cot"),
     )
 
 
@@ -89,3 +103,26 @@ def test_full_suite_green(tmp_path: Path):
         emit(cfg, out_root, seed_base=0)
         for row in load_jsonl(out_root / cfg.tier / "train.jsonl"):
             assert run(row.program).output == row.trace.output
+
+
+def test_render_fidelity_tier2_with_cot(tmp_path: Path):
+    """Tier 2 with both direct and cot renders — exercises both render-mode branches."""
+    emit(_tiny_tier2(), tmp_path, seed_base=0)
+    saw_cot = False
+    for row in load_jsonl(tmp_path / "tier2" / "train.jsonl"):
+        for mode in row.renders:
+            stored = row.renders[mode]
+            if mode == "direct":
+                input_ids, target_ids = tokeniser.render_direct(row.program, row.trace)
+                input_text, target_text = tokeniser.render_direct_text(row.program, row.trace)
+            elif mode == "cot":
+                input_ids, target_ids = tokeniser.render_cot(row.program, row.trace)
+                input_text, target_text = tokeniser.render_cot_text(row.program, row.trace)
+                saw_cot = True
+            else:
+                raise AssertionError(f"unknown mode {mode!r}")
+            assert stored.input_ids == input_ids
+            assert stored.target_ids == target_ids
+            assert stored.input_text == input_text
+            assert stored.target_text == target_text
+    assert saw_cot, "expected at least one row with a 'cot' render"

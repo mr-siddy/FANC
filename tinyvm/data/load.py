@@ -8,6 +8,8 @@ from typing import Iterator
 from tinyvm.data.schema import Row, from_row
 
 
+# TODO: HuggingFace adapter — spec §2 notes a one-liner `Dataset.from_generator(load_jsonl)`
+# wrapper if/when train loop wants HF-style datasets.
 def load_jsonl(path: Path) -> Iterator[Row]:
     """Stream rows from a single .jsonl file as Row(program, trace, meta, renders) tuples."""
     with Path(path).open(encoding="utf-8") as f:
