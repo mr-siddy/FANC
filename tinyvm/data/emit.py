@@ -66,14 +66,17 @@ def _emit_split(
     sha = hashlib.sha256()
     bucket_name = bucket.name if bucket is not None else None
     written = 0
-    with out_path.open("w") as f:
+    with out_path.open("w", encoding="utf-8") as f:
         for i in range(n_rows):
             row_seed = _row_seed(seed_base, split, bucket_name, i)
             rng = random.Random(row_seed)
             if split == "train":
                 axes = config.train_axes(rng)
-            else:
+            elif split == "eval":
+                assert bucket is not None, "eval split requires a bucket"
                 axes = dict(bucket.fixed_axes)
+            else:
+                raise ValueError(f"unknown split {split!r}")
             program = config.build(rng, axes)
             trace = run(program)
             renders = _build_renders(program, trace, config.renders)
@@ -88,6 +91,6 @@ def _emit_split(
             row_dict = to_row(program, trace, meta, renders)
             line = json.dumps(row_dict, separators=(",", ":")) + "\n"
             f.write(line)
-            sha.update(line.encode())
+            sha.update(line.encode("utf-8"))
             written += 1
     return written, sha.hexdigest()

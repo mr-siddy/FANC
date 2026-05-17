@@ -1,4 +1,13 @@
-from tinyvm.data.emit import _row_seed
+import hashlib
+import json
+import random
+from pathlib import Path
+
+from tinyvm.data.configs import TIER0
+from tinyvm.data.emit import _build_renders, _emit_split, _row_seed
+from tinyvm.data.schema import RenderedPrompt
+from tinyvm.generators import gen_register_trace
+from tinyvm.interpreter import run
 
 
 def test_row_seed_is_deterministic():
@@ -25,13 +34,6 @@ def test_row_seed_is_64_bit_unsigned_int():
     s = _row_seed(0, "train", None, 0)
     assert isinstance(s, int)
     assert 0 <= s < 2**64
-
-
-import random
-from tinyvm.data.emit import _build_renders
-from tinyvm.data.schema import RenderedPrompt
-from tinyvm.generators import gen_register_trace
-from tinyvm.interpreter import run
 
 
 def test_build_renders_produces_expected_modes():
@@ -71,13 +73,6 @@ def test_build_renders_unknown_mode_raises():
         _build_renders(p, trace, ("not_a_mode",))
 
 
-import json
-import hashlib
-from pathlib import Path
-from tinyvm.data.emit import _emit_split
-from tinyvm.data.configs import TIER0
-
-
 def test_emit_split_writes_n_rows_to_file(tmp_path: Path):
     out_path = tmp_path / "train.jsonl"
     n, h = _emit_split(TIER0, out_path, split="train", bucket=None,
@@ -113,7 +108,7 @@ def test_emit_split_eval_uses_fixed_axes(tmp_path: Path):
         row = json.loads(line)
         assert row["meta"]["split"] == "eval"
         assert row["meta"]["bucket"] == bucket.name
-        assert row["meta"]["axes"] == {"n": 8}    # TIER0's bucket has fixed n=8
+        assert row["meta"]["axes"] == dict(bucket.fixed_axes)
 
 
 def test_emit_split_is_deterministic(tmp_path: Path):
