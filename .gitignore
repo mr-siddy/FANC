@@ -1,6 +1,9 @@
 # Generated datasets (emitted by `python -m tinyvm.data emit ...`)
 data/
 
+# Computed statistics (regenerable via scripts/compute_tier1_stats.py)
+docs/stats/
+
 # Python build / cache
 __pycache__/
 *.py[cod]
