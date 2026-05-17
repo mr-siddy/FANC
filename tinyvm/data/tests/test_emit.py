@@ -8,7 +8,7 @@ from pathlib import Path
 
 from tinyvm.data.configs import TIER0
 from tinyvm.data.emit import _build_renders, _emit_split, _row_seed, emit
-from tinyvm.data.schema import RenderedPrompt
+from tinyvm.data.schema import RenderedPrompt, from_row
 from tinyvm.generators import gen_register_trace
 from tinyvm.interpreter import run
 
@@ -221,3 +221,20 @@ def test_cli_verify_returns_2_on_corrupted_file(tmp_path: Path):
     )
     assert result.returncode == 2
     assert "train.jsonl" in result.stderr or "train.jsonl" in result.stdout
+
+
+def test_emit_split_train_row_reconstructs_from_seed_and_axes(tmp_path: Path):
+    """Spec §3.6 / §10: (meta.seed, meta.axes) must reconstruct program for train rows."""
+    cfg = _tiny_config()  # already defined in the file
+    out_path = tmp_path / "train.jsonl"
+    n, _ = _emit_split(cfg, out_path, split="train", bucket=None,
+                       n_rows=cfg.train_size, seed_base=0)
+    assert n == cfg.train_size
+    # Load each row and verify reconstruction.
+    for line in out_path.read_text(encoding="utf-8").splitlines():
+        row = from_row(json.loads(line))
+        replayed = cfg.build(random.Random(row.meta.seed), row.meta.axes)
+        assert replayed == row.program, (
+            f"row reconstruction failed for seed={row.meta.seed} "
+            f"axes={row.meta.axes}"
+        )

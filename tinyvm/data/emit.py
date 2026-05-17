@@ -71,15 +71,17 @@ def _emit_split(
     with out_path.open("w", encoding="utf-8") as f:
         for i in range(n_rows):
             row_seed = _row_seed(seed_base, split, bucket_name, i)
-            rng = random.Random(row_seed)
             if split == "train":
-                axes = config.train_axes(rng)
+                axes_rng = random.Random(row_seed)
+                axes = config.train_axes(axes_rng)
             elif split == "eval":
                 assert bucket is not None, "eval split requires a bucket"
                 axes = dict(bucket.fixed_axes)
             else:
                 raise ValueError(f"unknown split {split!r}")
-            program = config.build(rng, axes)
+            # Fresh RNG for build(), derived from the same row_seed.
+            # Honors spec §3.6 / §10: (meta.seed, meta.axes) reconstructs program.
+            program = config.build(random.Random(row_seed), axes)
             trace = run(program)
             renders = _build_renders(program, trace, config.renders)
             meta = RowMeta(
