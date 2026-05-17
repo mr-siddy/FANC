@@ -1,0 +1,374 @@
+{
+  "groundTruth": {
+    "trace": {
+      "halted": true,
+      "output": [
+        1
+      ],
+      "steps": [
+        {
+          "emitted": null,
+          "pc": 0,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 1,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            120
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 2,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 3,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 4,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 5,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 6,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 7,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 21,
+          "regs": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 22,
+          "regs": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 23,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 24,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 25,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 26,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 27,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 28,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 29,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 30,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 31,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 32,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            -1,
+            1
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 33,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            -1,
+            1
+          ],
+          "stack": []
+        },
+        {
+          "emitted": 1,
+          "pc": 34,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            -1,
+            1
+          ],
+          "stack": []
+        },
+        {
+          "emitted": null,
+          "pc": 35,
+          "regs": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            -1,
+            1
+          ],
+          "stack": []
+        }
+      ]
+    }
+  },
+  "meta": {
+    "generator": "gen_branched",
+    "seed": 0,
+    "spec": {
+      "b": 1,
+      "k": 4,
+      "l": 0,
+      "n": 24
+    }
+  },
+  "prediction": {
+    "output": [
+      1
+    ]
+  },
+  "schema": "tinyvm-viz/comparison/v1",
+  "source": "LOAD R0 1\nLOAD R7 120\nLT R7 R0 R3 \nEQ R7 R7 R7 \nMUL R6 R6 R3 \nLT R3 R7 R3 \nLT R7 R6 R3 \nJZ R7 L0\nDIV R7 R6 R3 \nNEG R7 R7 \nLT R7 R0 R3 \nLOAD R3 107\nLOAD R6 57\nNEG R3 R6 \nEQ R7 R7 R3 \nMOV R6 R7 \nSUB R6 R0 R6 \nMOV R7 R0 \nMOV R7 R3 \nMOV R3 R3 \nJMP L1\nL0:LT R3 R3 R0 \nMOV R3 R0 \nDIV R3 R7 R3 \nADD R6 R7 R6 \nMUL R7 R6 R6 \nADD R6 R6 R6 \nLT R3 R0 R3 \nLT R6 R7 R0 \nMUL R7 R0 R3 \nMOV R7 R6 \nEQ R3 R3 R7 \nSUB R6 R3 R6 \nL1:NOP \nPRINT R7 \nHALT \n"
+}
