@@ -3,6 +3,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { linter, Diagnostic } from "@codemirror/lint";
+import { tinyvm } from "@/core/cmLanguage";
 import { parse } from "@/core/parser";
 import { validate } from "@/core/verifier";
 
@@ -46,6 +47,7 @@ export function Editor({ value, onChange }: EditorProps) {
       doc: value,
       extensions: [
         lineNumbers(),
+        tinyvm,
         history(),
         highlightActiveLine(),
         editorTheme,
