@@ -155,5 +155,5 @@ def emit(config: DatasetConfig, out_dir: Path, seed_base: int = 0) -> Path:
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "files": files,
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest_path

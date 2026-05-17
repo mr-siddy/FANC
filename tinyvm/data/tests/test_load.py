@@ -6,6 +6,7 @@ from tinyvm.data.load import load_jsonl, load_split, load_prompts, load_manifest
 from tinyvm.data.emit import emit
 from tinyvm.data.configs import EvalBucket, DatasetConfig
 from tinyvm.data.configs import _tier0_train_axes, _tier0_build
+from tinyvm.data.schema import Row
 
 
 def _tiny_config():
@@ -24,7 +25,6 @@ def test_load_jsonl_yields_rows(tmp_path: Path):
     rows = list(load_jsonl(tmp_path / "tier0" / "train.jsonl"))
     assert len(rows) == 4
     # Each row is a Row NamedTuple from schema.py.
-    from tinyvm.data.schema import Row
     assert all(isinstance(r, Row) for r in rows)
     # The first row's program is well-formed.
     assert len(rows[0].program.instructions) > 0
