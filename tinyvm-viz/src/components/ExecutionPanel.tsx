@@ -12,6 +12,7 @@ interface ExecutionPanelProps {
   stepIdx: number;
   mode: "single" | "compare";
   modelOutput?: readonly number[];
+  lineToInstIdx: readonly (number | null)[];
 }
 
 export function ExecutionPanel({
@@ -21,6 +22,7 @@ export function ExecutionPanel({
   stepIdx,
   mode,
   modelOutput,
+  lineToInstIdx,
 }: ExecutionPanelProps) {
   const step = trace.steps[Math.max(0, Math.min(stepIdx, trace.steps.length - 1))]!;
   const prev = stepIdx > 0 ? trace.steps[stepIdx - 1]! : null;
@@ -30,7 +32,7 @@ export function ExecutionPanel({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_18rem] gap-4">
       <div className="space-y-4">
-        <ProgramView source={source} activePc={step.pc} />
+        <ProgramView source={source} activeInstIdx={step.pc} lineToInstIdx={lineToInstIdx} />
         <OutputStream
           groundTruth={trace.output}
           model={mode === "compare" ? (modelOutput ?? []) : null}

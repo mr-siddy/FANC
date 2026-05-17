@@ -50,19 +50,19 @@ export function Compare({ initialBundle }: CompareProps) {
 
   type ReRunResult =
     | null
-    | { ok: false; message: string }
-    | { ok: boolean; program: import("@/core/isa").Program; tsTrace: SerializedTrace };
+    | { ok: false; message: string; lineToInstIdx: (number | null)[] }
+    | { ok: boolean; program: import("@/core/isa").Program; tsTrace: SerializedTrace; lineToInstIdx: (number | null)[] };
 
   const reRun = useMemo<ReRunResult>(() => {
     if (!bundle) return null;
-    const { program, errors } = parse(bundle.source);
-    if (!program || errors.length) return { ok: false as const, message: "bundle.source did not parse" };
+    const { program, errors, lineToInstIdx } = parse(bundle.source);
+    if (!program || errors.length) return { ok: false as const, message: "bundle.source did not parse", lineToInstIdx };
     try {
       const tsTrace = serializeTrace(run(program));
       const same = JSON.stringify(tsTrace.output) === JSON.stringify(bundle.groundTruth.trace.output);
-      return { ok: same, program, tsTrace };
+      return { ok: same, program, tsTrace, lineToInstIdx };
     } catch (e) {
-      return { ok: false as const, message: (e as Error).message };
+      return { ok: false as const, message: (e as Error).message, lineToInstIdx };
     }
   }, [bundle]);
 
@@ -136,6 +136,7 @@ export function Compare({ initialBundle }: CompareProps) {
           stepIdx={safeStep}
           mode="compare"
           modelOutput={bundle.prediction.output}
+          lineToInstIdx={reRunSuccess.lineToInstIdx}
         />
       )}
     </div>

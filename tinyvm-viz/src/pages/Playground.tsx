@@ -21,7 +21,7 @@ export function Playground() {
     setStepIdx(0);
   }, [lesson]);
 
-  const { program, errors } = useMemo(() => parse(source), [source]);
+  const { program, errors, lineToInstIdx } = useMemo(() => parse(source), [source]);
   const traceResult = useMemo<{ trace: SerializedTrace | null; error: string | null }>(() => {
     if (!program) return { trace: null, error: null };
     try {
@@ -71,7 +71,14 @@ export function Playground() {
         )}
         {error && <div className="text-sm text-amber-700">{error}</div>}
         {program && trace && (
-          <ExecutionPanel program={program} source={source} trace={trace} stepIdx={safeStep} mode="single" />
+          <ExecutionPanel
+            program={program}
+            source={source}
+            trace={trace}
+            stepIdx={safeStep}
+            mode="single"
+            lineToInstIdx={lineToInstIdx}
+          />
         )}
       </main>
     </div>
