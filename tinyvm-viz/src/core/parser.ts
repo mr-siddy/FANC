@@ -8,6 +8,9 @@ export interface ParseError {
 export interface ParseResult {
   program?: Program;
   errors: ParseError[];
+  /** lineToInstIdx[i] = instruction index for source line i (0-indexed),
+   *  or null if the line is blank, comment-only, or unparseable. */
+  lineToInstIdx: (number | null)[];
 }
 
 interface ArgSchema {
@@ -87,12 +90,16 @@ export function parse(source: string): ParseResult {
   const errors: ParseError[] = [];
   const insts: Instruction[] = [];
   const lines = source.split("\n");
+  const lineToInstIdx: (number | null)[] = [];
 
   for (let li = 0; li < lines.length; li++) {
     const raw = lines[li]!;
     let label: string | undefined;
     const stripped = stripComment(raw).trim();
-    if (stripped.length === 0) continue;
+    if (stripped.length === 0) {
+      lineToInstIdx.push(null);
+      continue;
+    }
 
     let rest = stripped;
     const labelMatch = stripped.match(/^(L\d+)\s*:\s*(.*)$/);
@@ -104,6 +111,7 @@ export function parse(source: string): ParseResult {
     const tokens = tokenise(rest);
     if (tokens.length === 0) {
       // label-only line: emit a NOP carrying the label
+      lineToInstIdx.push(insts.length);
       insts.push({ op: Op.NOP, args: [], label, target: undefined });
       continue;
     }
@@ -112,6 +120,7 @@ export function parse(source: string): ParseResult {
     const op = OP_BY_NAME[opName];
     if (op === undefined) {
       errors.push({ line: li + 1, message: `unknown opcode: ${opName}` });
+      lineToInstIdx.push(null);
       continue;
     }
 
@@ -120,6 +129,7 @@ export function parse(source: string): ParseResult {
     const got = tokens.length - 1;
     if (got !== expected) {
       errors.push({ line: li + 1, message: `${opName} (arity) expects ${expected} operands, got ${got}` });
+      lineToInstIdx.push(null);
       continue;
     }
 
@@ -161,23 +171,26 @@ export function parse(source: string): ParseResult {
       cursor++;
     }
 
-    if (!lineHasError) {
+    if (lineHasError) {
+      lineToInstIdx.push(null);
+    } else {
+      lineToInstIdx.push(insts.length);
       insts.push({ op, args, label, target });
     }
   }
 
-  if (errors.length > 0) return { errors };
+  if (errors.length > 0) return { errors, lineToInstIdx };
 
   try {
-    return { program: buildProgram(insts), errors: [] };
+    return { program: buildProgram(insts), errors: [], lineToInstIdx };
   } catch (e) {
     const msg = (e as Error).message;
     const m = msg.match(/duplicate label: (L\d+)/);
     if (m) {
       const lbl = m[1]!;
       const lineNum = lines.findIndex((l, idx) => idx > 0 && stripComment(l).trim().startsWith(`${lbl}:`)) + 1;
-      return { errors: [{ line: lineNum || 0, message: msg }] };
+      return { errors: [{ line: lineNum || 0, message: msg }], lineToInstIdx };
     }
-    return { errors: [{ line: 0, message: msg }] };
+    return { errors: [{ line: 0, message: msg }], lineToInstIdx };
   }
 }
