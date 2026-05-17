@@ -501,64 +501,86 @@ The verifier's invariant is **"the interpreter will never raise on this program.
 
 ## 9. End-to-end worked example
 
-Take an actual row from the Tier 1 dataset (eval bucket `len_8`, row 0, seed `7502970485723022491`, axes `{n: 8, k: 4}`):
+Take an actual Tier 1 train row from the live dataset — a relatively short program (`axes = {n: 14, k: 2}`, seed `3896364871974659895`) that exercises **most opcodes, divide-by-self, and arithmetic clamping** in 14 body instructions.
 
-### 9.1 The program
+### 9.1 The program (with hand-traced evaluation)
 
-```
-[ 0] ADD    R3 R7 R3           # R3 ← R7 + R3 = 0 + 0 = 0
-[ 1] DIV    R3 R3 R7           # R3 ← 0 // 0 = 0 (div-zero rule)
-[ 2] NEG    R5 R5              # R5 ← -R5 = 0
-[ 3] MOV    R7 R5              # R7 ← R5 = 0
-[ 4] LT     R7 R7 R5           # R7 ← (R7 < R5) = (0 < 0) = 0
-[ 5] SUB    R3 R7 R7           # R3 ← R7 - R7 = 0
-[ 6] SUB    R7 R5 R5           # R7 ← R5 - R5 = 0
-[ 7] NEG    R5 R3              # R5 ← -R3 = 0
-[ 8] PRINT  R5                 # emit 0
-[ 9] HALT
-```
-
-Note: 4 active registers `{R3, R5, R7, ...}` (the fourth is sampled but never appears in this program due to random fill draws). The generator picked `k=4` registers but the random fill only hit three of them. This is normal — `k` upper-bounds the number of distinct registers, not the exact count.
-
-### 9.2 The execution trace
-
-All registers start at 0. Every op produces 0 (zero plus zero, zero minus zero, etc.). After 9 steps the program HALTs with all registers still 0 and the output stream containing one value: `[0]`.
-
-### 9.3 The direct-mode render
-
-**Input text** (program tokens with `BOS`/`EOS` stripped):
+`k=2` means the generator sampled 2 active registers for this program: **R1 and R3**. Every fill instruction's destination comes from `{R1, R3}`; source registers can be anything in the active set. Note how registers other than R1/R3 stay at zero throughout — they're never written.
 
 ```
-ADD R3 R7 R3 
-DIV R3 R3 R7 
-NEG R5 R5 
-MOV R7 R5 
-LT R7 R7 R5 
-SUB R3 R7 R7 
-SUB R7 R5 R5 
-NEG R5 R3 
-PRINT R5 
+                                            R1     R3   ← values BEFORE this instruction
+  [ 0] ADD   R3 R1 R1   # R3 ← R1 + R1     0      0     → R3 = 0
+  [ 1] NEG   R1 R1      # R1 ← -R1         0      0     → R1 = 0
+  [ 2] EQ    R3 R1 R1   # R3 ← (R1 == R1)  0      0     → R3 = 1   (true)
+  [ 3] SUB   R1 R1 R3   # R1 ← R1 - R3     0      1     → R1 = -1
+  [ 4] DIV   R1 R1 R1   # R1 ← R1 // R1   -1      1     → R1 = 1   (-1 ÷ -1)
+  [ 5] NEG   R1 R1      # R1 ← -R1         1      1     → R1 = -1
+  [ 6] MOV   R1 R3      # R1 ← R3         -1      1     → R1 = 1
+  [ 7] LOAD  R3 -76     # R3 ← clamp(-76)  1      1     → R3 = -76
+  [ 8] SUB   R3 R3 R1   # R3 ← R3 - R1     1     -76    → R3 = -77
+  [ 9] NEG   R3 R3      # R3 ← -R3         1     -77    → R3 = 77
+  [10] MUL   R3 R3 R3   # R3 ← R3 × R3     1      77    → R3 = 1023  ★ CLAMPED (77 × 77 = 5929 → 1023)
+  [11] LT    R3 R1 R3   # R3 ← (R1 < R3)   1    1023    → R3 = 1     (true)
+  [12] LOAD  R3 116     # R3 ← 116         1      1     → R3 = 116
+  [13] DIV   R1 R1 R1   # R1 ← R1 // R1    1    116     → R1 = 1     (1 ÷ 1)
+  [14] PRINT R1         # emit R1          1    116     → output [1]
+  [15] HALT
+```
+
+Things to notice:
+
+- **Step 10 demonstrates clamping**: `77 × 77 = 5929` would overflow the value range `[-1024, 1023]`, so it clamps to `1023`. This is a deliberate semantic (interpreter §4.3); arithmetic never wraps and never traps.
+- **Step 4 demonstrates safe self-division**: `DIV R1 R1 R1` with R1=-1 gives `-1 ÷ -1 = 1`. Had R1 been 0, the div-by-zero rule would have returned 0 (also safe).
+- **The print target was R1** — picked by the generator's "most-recently-written non-distractor register" heuristic. In this k=2 program both R1 and R3 are written many times; R1 happened to be the last writable destination before PRINT.
+
+The output stream is `[1]` — a single integer, as for every Tier 1 program.
+
+### 9.2 The direct-mode render
+
+**Input text** (program tokens, `BOS`/`EOS` stripped, surface format):
+
+```
+ADD R3 R1 R1 
+NEG R1 R1 
+EQ R3 R1 R1 
+SUB R1 R1 R3 
+DIV R1 R1 R1 
+NEG R1 R1 
+MOV R1 R3 
+LOAD R3-76
+SUB R3 R3 R1 
+NEG R3 R3 
+MUL R3 R3 R3 
+LT R3 R1 R3 
+LOAD R3 116
+DIV R1 R1 R1 
+PRINT R1 
 HALT 
 ```
+
+Note `LOAD R3-76` on the 8th line: the `MINUS` token deliberately attaches to the following digit with no space, since that's how arithmetic literals are surface-rendered (see `_tokens_to_text` in `tinyvm/tokeniser.py`).
 
 **Target text** (the printed output stream):
 
 ```
-0
+1
 ```
 
-**Input IDs** (44 tokens) and **target IDs** (4 tokens):
+**Input IDs** (50 tokens) and **target IDs** (4 tokens):
 
 ```python
-input_ids  = [40, 2, 19, 23, 19, 39, 5, 19, 19, 23, 39, 6, 21, 21, 39,
-              1, 23, 21, 39, 8, 23, 23, 21, 39, 3, 19, 23, 23, 39, 3,
-              23, 21, 21, 39, 6, 21, 19, 39, 13, 21, 39, 15, 39, 41]
-target_ids = [40, 24, 39, 41]   # [BOS, "0", NEWLINE, EOS]
+input_ids  = [40, 2, 19, 17, 17, 39, 6, 17, 17, 39, 7, 19, 17, 17, 39, 3, 17, 17, 19, 39,
+              5, 17, 17, 17, 39, 6, 17, 17, 39, 1, 17, 19, 39, 0, 19, 34, 31, 30, 39, 3,
+              19, 19, 17, 39, 6, 19, 19, 39, 4, 19, 19, 19, 39, 8, 19, 17, 19, 39, 0, 19,
+              25, 25, 30, 39, 5, 17, 17, 17, 39, 13, 17, 39, 15, 39, 41]
+target_ids = [40, 25, 39, 41]   # [BOS, "1", NEWLINE, EOS]
 ```
 
-Decoding the first few input IDs by hand using the vocab: `40=BOS, 2=ADD, 19=R3, 23=R7, 19=R3, 39=NEWLINE, 5=DIV, 19=R3, 19=R3, 23=R7, 39=NEWLINE, ...`. The encoding is a flat token stream — no special separators between instructions beyond `NEWLINE`.
+Decoding the first few input IDs: `40=BOS, 2=ADD, 19=R3, 17=R1, 17=R1, 39=NEWLINE, 6=NEG, 17=R1, 17=R1, 39=NEWLINE, ...`. The encoding is a flat token stream — no separators between instructions beyond `NEWLINE`.
 
-### 9.4 Round-trip guarantee
+For a sense of scale: this 14-body-instruction program produces **50 input tokens + 4 target tokens**. The eval bucket `len_128` (130-instruction programs) produces up to **654 input tokens + ~6 target tokens** — the model has to track a 5× longer program to predict the same-shape answer.
+
+### 9.3 Round-trip guarantee
 
 The schema's contract (proved by `test_pipeline.py::test_seed_reproducibility_per_row`):
 
@@ -567,8 +589,8 @@ import random
 from tinyvm.data.configs import TIER1
 
 # Re-derive the program from just (meta.seed, meta.axes)
-rng = random.Random(7502970485723022491)
-program = TIER1.build(rng, {"n": 8, "k": 4})
+rng = random.Random(3896364871974659895)
+program = TIER1.build(rng, {"n": 14, "k": 2})
 
 # Re-run the trace
 from tinyvm.interpreter import run

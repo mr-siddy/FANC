@@ -261,7 +261,7 @@ pytest tinyvm/ -v
 
 ## Deferred work
 
-Tracked with TODO comments in the code; see [`docs/tinyvm_dataset.md`](docs/tinyvm_dataset.md) §14 for the full list. Highlights:
+Tracked with TODO comments in the code; see [`docs/tinyvm_dataset.md`](docs/tinyvm_dataset.md) §15 for the full list. Highlights:
 
 - **Tier 4 emission** (`UseropTrace` rows) — `gen_userop_trace` is implemented and tested but emits a row variant the current pipeline doesn't support yet
 - **Multi-process emit** — single-process Tier 2 takes 30-120 min; a `--workers N` flag would parallelise per-row work
