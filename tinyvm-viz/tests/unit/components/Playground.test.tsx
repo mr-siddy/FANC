@@ -62,4 +62,16 @@ describe("Playground: keyboard shortcuts", () => {
     expect(screen.getByTestId("scrubber")).toHaveValue("1");
     input.remove();
   });
+
+  it("space toggles running state", () => {
+    render(<Playground />);
+    // Smoke test: pressing space should not throw and should change runtime state.
+    // We can't easily observe `running` directly, so we assert the run button's
+    // text content flips between "▶ run" and "⏸ pause".
+    const runBtn = screen.getByTestId("btn-run");
+    const beforeText = runBtn.textContent;
+    fireEvent.keyDown(document, { key: " " });
+    // After space, the running state toggled, so the button label should change.
+    expect(runBtn.textContent).not.toBe(beforeText);
+  });
 });

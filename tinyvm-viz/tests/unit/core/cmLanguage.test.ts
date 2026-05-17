@@ -1,13 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { tinyvm } from "@/core/cmLanguage";
-import { EditorState } from "@codemirror/state";
-import { LanguageSupport } from "@codemirror/language";
-
-function tagSequence(source: string): string[] {
-  const state = EditorState.create({ doc: source, extensions: [new LanguageSupport(tinyvm)] });
-  const tags: string[] = [];
-  return tags;
-}
 
 describe("cmLanguage: token function", () => {
   // We drive the StreamLanguage token function manually to get tag sequences.
@@ -70,5 +62,3 @@ describe("cmLanguage: token function", () => {
     expect(tokens("DOUBLE R0 R1")).toEqual(["invalid", "variableName", "variableName"]);
   });
 });
-
-void tagSequence;
