@@ -47,6 +47,35 @@ export function Playground() {
   const maxStep = trace ? trace.steps.length - 1 : 0;
   const safeStep = Math.min(stepIdx, maxStep);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && (active.closest(".cm-editor") || active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+      switch (e.key) {
+        case "ArrowRight":
+          e.preventDefault();
+          setStepIdx((s) => Math.min(s + 1, maxStep));
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          setStepIdx((s) => Math.max(s - 1, 0));
+          break;
+        case " ":
+          e.preventDefault();
+          setRunning((r) => !r);
+          break;
+        case "r":
+        case "R":
+          if (e.metaKey || e.ctrlKey) return;
+          e.preventDefault();
+          setStepIdx(0);
+          break;
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [maxStep]);
+
   return (
     <div className="grid grid-cols-[14rem_1fr] gap-4 p-4">
       <aside>
