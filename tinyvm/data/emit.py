@@ -94,3 +94,68 @@ def _emit_split(
             sha.update(line.encode("utf-8"))
             written += 1
     return written, sha.hexdigest()
+
+
+import subprocess
+from datetime import datetime, timezone
+
+
+def _read_tinyvm_version() -> str:
+    """Best-effort version string. Falls back to '0.0.0+unknown' if discovery fails."""
+    try:
+        from importlib.metadata import version
+        return version("tinyvm")
+    except Exception:
+        return "0.0.0+unknown"
+
+
+def _read_git_commit() -> str:
+    """Best-effort short git SHA of HEAD. Falls back to 'unknown' if not in a git repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, check=True, timeout=5,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+def emit(config: DatasetConfig, out_dir: Path, seed_base: int = 0) -> Path:
+    """Emit a full dataset to out_dir/<config.tier>/. Returns the path to manifest.json.
+
+    Layout produced:
+      out_dir/<tier>/
+        train.jsonl
+        eval/<bucket_name>.jsonl       (one per config.eval_buckets entry)
+        manifest.json                  (written LAST; its presence means emit completed)
+    """
+    out_dir = Path(out_dir)
+    tier_dir = out_dir / config.tier
+    (tier_dir / "eval").mkdir(parents=True, exist_ok=True)
+
+    files: dict[str, dict] = {}
+
+    # Train.
+    train_path = tier_dir / "train.jsonl"
+    n, h = _emit_split(config, train_path, "train", None, config.train_size, seed_base)
+    files["train.jsonl"] = {"rows": n, "sha256": h}
+
+    # Eval buckets.
+    for bucket in config.eval_buckets:
+        path = tier_dir / "eval" / f"{bucket.name}.jsonl"
+        n, h = _emit_split(config, path, "eval", bucket, bucket.size, seed_base)
+        files[f"eval/{bucket.name}.jsonl"] = {"rows": n, "sha256": h}
+
+    # Manifest written last — its presence indicates emit completed.
+    manifest_path = tier_dir / "manifest.json"
+    manifest = {
+        "tier": config.tier,
+        "seed_base": seed_base,
+        "tinyvm_version": _read_tinyvm_version(),
+        "tinyvm_commit": _read_git_commit(),
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "files": files,
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2))
+    return manifest_path

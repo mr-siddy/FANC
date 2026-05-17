@@ -117,3 +117,68 @@ def test_emit_split_is_deterministic(tmp_path: Path):
     _emit_split(TIER0, a, split="train", bucket=None, n_rows=4, seed_base=42)
     _emit_split(TIER0, b, split="train", bucket=None, n_rows=4, seed_base=42)
     assert a.read_bytes() == b.read_bytes()
+
+
+from datetime import datetime
+from tinyvm.data.emit import emit
+
+
+def _tiny_config():
+    """A miniature TIER0 for fast emit tests."""
+    from tinyvm.data.configs import EvalBucket, DatasetConfig, _tier0_train_axes, _tier0_build
+    return DatasetConfig(
+        tier="tier0",
+        train_size=5,
+        train_axes=_tier0_train_axes,
+        eval_buckets=(EvalBucket(name="all", size=3, fixed_axes={"n": 8}),),
+        build=_tier0_build,
+        renders=("direct",),
+    )
+
+
+def test_emit_creates_layout(tmp_path: Path):
+    cfg = _tiny_config()
+    manifest_path = emit(cfg, tmp_path, seed_base=0)
+    assert manifest_path == tmp_path / "tier0" / "manifest.json"
+    assert (tmp_path / "tier0" / "train.jsonl").exists()
+    assert (tmp_path / "tier0" / "eval" / "all.jsonl").exists()
+    assert manifest_path.exists()
+
+
+def test_emit_manifest_contents(tmp_path: Path):
+    cfg = _tiny_config()
+    manifest_path = emit(cfg, tmp_path, seed_base=7)
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["tier"] == "tier0"
+    assert manifest["seed_base"] == 7
+    assert "tinyvm_version" in manifest
+    assert "tinyvm_commit" in manifest
+    assert "generated_at" in manifest
+    # generated_at parses as ISO8601.
+    datetime.fromisoformat(manifest["generated_at"].rstrip("Z"))
+    assert manifest["files"]["train.jsonl"]["rows"] == 5
+    assert manifest["files"]["eval/all.jsonl"]["rows"] == 3
+    # SHA-256 hashes are 64 hex chars.
+    for entry in manifest["files"].values():
+        assert len(entry["sha256"]) == 64
+
+
+def test_emit_is_deterministic(tmp_path: Path):
+    cfg = _tiny_config()
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    emit(cfg, a, seed_base=42)
+    emit(cfg, b, seed_base=42)
+    # Train file bytes identical.
+    assert (a / "tier0" / "train.jsonl").read_bytes() == (b / "tier0" / "train.jsonl").read_bytes()
+    # Eval file bytes identical.
+    assert (a / "tier0" / "eval" / "all.jsonl").read_bytes() == (b / "tier0" / "eval" / "all.jsonl").read_bytes()
+
+
+def test_emit_different_seed_base_different_content(tmp_path: Path):
+    cfg = _tiny_config()
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    emit(cfg, a, seed_base=0)
+    emit(cfg, b, seed_base=1)
+    assert (a / "tier0" / "train.jsonl").read_bytes() != (b / "tier0" / "train.jsonl").read_bytes()
