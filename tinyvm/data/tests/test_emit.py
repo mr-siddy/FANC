@@ -1,6 +1,8 @@
 import hashlib
 import json
 import random
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -179,3 +181,14 @@ def test_emit_different_seed_base_different_content(tmp_path: Path):
     emit(cfg, a, seed_base=0)
     emit(cfg, b, seed_base=1)
     assert (a / "tier0" / "train.jsonl").read_bytes() != (b / "tier0" / "train.jsonl").read_bytes()
+
+
+def test_cli_emit_with_unknown_tier_exits_nonzero(tmp_path: Path):
+    """Plumbing check: argparse parses, the CLI dispatches, unknown tier fails cleanly."""
+    result = subprocess.run(
+        [sys.executable, "-m", "tinyvm.data", "emit",
+         "--tier", "tier99", "--out", str(tmp_path)],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode != 0
+    assert "tier99" in result.stderr or "tier99" in result.stdout
