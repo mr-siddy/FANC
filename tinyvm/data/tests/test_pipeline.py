@@ -11,6 +11,7 @@ from tinyvm.data.configs import (
 from tinyvm.data.emit import emit
 from tinyvm.data.load import load_jsonl
 from tinyvm.interpreter import run
+from tinyvm import tokeniser
 
 
 def _tiny_tier0():
@@ -52,3 +53,36 @@ def test_seed_reproducibility_per_row(tmp_path: Path):
     for row in load_jsonl(tmp_path / "tier1" / "train.jsonl"):
         replayed = cfg.build(random.Random(row.meta.seed), row.meta.axes)
         assert replayed == row.program, f"row reconstruction failed for seed={row.meta.seed}"
+
+
+def test_render_fidelity(tmp_path: Path):
+    """Stored render IDs/text reproduce when re-rendered from the loaded Program."""
+    emit(_tiny_tier0(), tmp_path, seed_base=0)
+    for row in load_jsonl(tmp_path / "tier0" / "train.jsonl"):
+        for mode in row.renders:
+            stored = row.renders[mode]
+            # Re-render from loaded program + trace.
+            if mode == "direct":
+                input_ids, target_ids = tokeniser.render_direct(row.program, row.trace)
+                input_text, target_text = tokeniser.render_direct_text(row.program, row.trace)
+            elif mode == "cot":
+                input_ids, target_ids = tokeniser.render_cot(row.program, row.trace)
+                input_text, target_text = tokeniser.render_cot_text(row.program, row.trace)
+            else:
+                continue
+            assert stored.input_ids == input_ids
+            assert stored.target_ids == target_ids
+            assert stored.input_text == input_text
+            assert stored.target_text == target_text
+
+
+def test_full_suite_green(tmp_path: Path):
+    """Smoke test: emit a tiny dataset for each tier, load it back, replay traces."""
+    for cfg in (_tiny_tier0(), _tiny_tier1()):
+        # Each tier emits to its own subdir to keep paths clean: tmp_path/<tier>/<tier>/...
+        # would double-nest, so use separate parent dirs.
+        out_root = tmp_path / f"emit_{cfg.tier}"
+        out_root.mkdir()
+        emit(cfg, out_root, seed_base=0)
+        for row in load_jsonl(out_root / cfg.tier / "train.jsonl"):
+            assert run(row.program).output == row.trace.output
