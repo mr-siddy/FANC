@@ -42,7 +42,9 @@ def test_build_renders_produces_expected_modes():
     assert isinstance(out["direct"], RenderedPrompt)
     assert len(out["direct"].input_ids) > 0
     assert len(out["direct"].target_ids) > 0
-    assert len(out["direct"].input_text) > 0  # Contains instructions as text
+    # Must contain at least one register token (R0..R7) — seed-independent.
+    assert any(f"R{i}" in out["direct"].input_text for i in range(8)), \
+        f"input_text missing register tokens: {out['direct'].input_text!r}"
 
 
 def test_build_renders_handles_multiple_modes():
