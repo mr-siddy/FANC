@@ -51,16 +51,22 @@ export function Compare({ initialBundle }: CompareProps) {
   type ReRunResult =
     | null
     | { ok: false; message: string; lineToInstIdx: (number | null)[] }
-    | { ok: boolean; program: import("@/core/isa").Program; tsTrace: SerializedTrace; lineToInstIdx: (number | null)[] };
+    | { ok: true; program: import("@/core/isa").Program; tsTrace: SerializedTrace; lineToInstIdx: (number | null)[]; faulted: true }
+    | { ok: boolean; program: import("@/core/isa").Program; tsTrace: SerializedTrace; lineToInstIdx: (number | null)[]; faulted: false };
 
   const reRun = useMemo<ReRunResult>(() => {
     if (!bundle) return null;
+    if (bundle.groundTruth.trace.halted === false) {
+      const { program, errors, lineToInstIdx } = parse(bundle.source);
+      if (!program || errors.length) return { ok: false as const, message: "bundle.source did not parse", lineToInstIdx };
+      return { ok: true as const, program, tsTrace: bundle.groundTruth.trace, lineToInstIdx, faulted: true as const };
+    }
     const { program, errors, lineToInstIdx } = parse(bundle.source);
     if (!program || errors.length) return { ok: false as const, message: "bundle.source did not parse", lineToInstIdx };
     try {
-      const tsTrace = serializeTrace(run(program));
-      const same = JSON.stringify(tsTrace.output) === JSON.stringify(bundle.groundTruth.trace.output);
-      return { ok: same, program, tsTrace, lineToInstIdx };
+      const trace = serializeTrace(run(program));
+      const same = JSON.stringify(trace.output) === JSON.stringify(bundle.groundTruth.trace.output);
+      return { ok: same, program, tsTrace: trace, lineToInstIdx, faulted: false as const };
     } catch (e) {
       return { ok: false as const, message: (e as Error).message, lineToInstIdx };
     }
@@ -111,7 +117,12 @@ export function Compare({ initialBundle }: CompareProps) {
         {" "}gt {JSON.stringify(bundle.groundTruth.trace.output)} ·
         {" "}model {JSON.stringify(bundle.prediction.output)}
       </div>
-      {reRun && !reRun.ok && (
+      {reRun && "faulted" in reRun && reRun.faulted && (
+        <div data-testid="fault-banner" className="text-sm bg-amber-100 text-amber-900 p-2 rounded">
+          interpreter halted with: {bundle.meta.interpreterError ?? "halted before completion"}
+        </div>
+      )}
+      {reRun && !reRun.ok && !("faulted" in reRun && reRun.faulted) && (
         <div data-testid="parity-banner" className="text-sm bg-red-100 text-red-800 p-2 rounded">
           parity drift suspected — bundle ground truth disagrees with TS re-run
         </div>
