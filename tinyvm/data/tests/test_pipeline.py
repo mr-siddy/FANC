@@ -69,7 +69,10 @@ def test_render_fidelity(tmp_path: Path):
                 input_ids, target_ids = tokeniser.render_cot(row.program, row.trace)
                 input_text, target_text = tokeniser.render_cot_text(row.program, row.trace)
             else:
-                continue
+                raise AssertionError(
+                    f"test_render_fidelity does not cover render mode {mode!r} — "
+                    "extend the if/elif chain when adding a new render mode"
+                )
             assert stored.input_ids == input_ids
             assert stored.target_ids == target_ids
             assert stored.input_text == input_text
