@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -94,10 +96,6 @@ def _emit_split(
             sha.update(line.encode("utf-8"))
             written += 1
     return written, sha.hexdigest()
-
-
-import subprocess
-from datetime import datetime, timezone
 
 
 def _read_tinyvm_version() -> str:

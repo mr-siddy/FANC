@@ -1,10 +1,11 @@
 import hashlib
 import json
 import random
+from datetime import datetime
 from pathlib import Path
 
 from tinyvm.data.configs import TIER0
-from tinyvm.data.emit import _build_renders, _emit_split, _row_seed
+from tinyvm.data.emit import _build_renders, _emit_split, _row_seed, emit
 from tinyvm.data.schema import RenderedPrompt
 from tinyvm.generators import gen_register_trace
 from tinyvm.interpreter import run
@@ -119,10 +120,6 @@ def test_emit_split_is_deterministic(tmp_path: Path):
     assert a.read_bytes() == b.read_bytes()
 
 
-from datetime import datetime
-from tinyvm.data.emit import emit
-
-
 def _tiny_config():
     """A miniature TIER0 for fast emit tests."""
     from tinyvm.data.configs import EvalBucket, DatasetConfig, _tier0_train_axes, _tier0_build
@@ -151,8 +148,8 @@ def test_emit_manifest_contents(tmp_path: Path):
     manifest = json.loads(manifest_path.read_text())
     assert manifest["tier"] == "tier0"
     assert manifest["seed_base"] == 7
-    assert "tinyvm_version" in manifest
-    assert "tinyvm_commit" in manifest
+    assert isinstance(manifest["tinyvm_version"], str) and manifest["tinyvm_version"]
+    assert isinstance(manifest["tinyvm_commit"], str) and manifest["tinyvm_commit"]
     assert "generated_at" in manifest
     # generated_at parses as ISO8601.
     datetime.fromisoformat(manifest["generated_at"].rstrip("Z"))
