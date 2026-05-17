@@ -75,3 +75,29 @@ describe("parser: labels and jumps", () => {
     expect(errors[0]!.message).toMatch(/duplicate label/);
   });
 });
+
+describe("parser: lineToInstIdx", () => {
+  it("maps a clean multi-line program one-to-one", () => {
+    const src = "LOAD R0 5\nADD R0 R0 R0\nPRINT R0\nHALT\n";
+    const { program, errors, lineToInstIdx } = parse(src);
+    expect(errors).toEqual([]);
+    expect(program!.instructions).toHaveLength(4);
+    expect(lineToInstIdx.slice(0, 4)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("maps comment-only and blank lines to null", () => {
+    const src = "; header\nLOAD R0 5\n\nHALT\n";
+    const { program, errors, lineToInstIdx } = parse(src);
+    expect(errors).toEqual([]);
+    expect(program!.instructions.map((i) => i.op)).toEqual([Op.LOAD, Op.HALT]);
+    expect(lineToInstIdx.slice(0, 4)).toEqual([null, 0, null, 1]);
+  });
+
+  it("maps a label-only line to a synthesised NOP (real instruction)", () => {
+    const src = "L0:\nLOAD R0 1\nHALT\n";
+    const { program, errors, lineToInstIdx } = parse(src);
+    expect(errors).toEqual([]);
+    expect(program!.instructions).toHaveLength(3);
+    expect(lineToInstIdx.slice(0, 3)).toEqual([0, 1, 2]);
+  });
+});

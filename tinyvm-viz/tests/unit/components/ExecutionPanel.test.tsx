@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { ExecutionPanel } from "@/components/ExecutionPanel";
 import { buildProgram, Op } from "@/core/isa";
 import { run, serializeTrace } from "@/core/interpreter";
+import { parse } from "@/core/parser";
 import { renderProgramText } from "@/core/tokeniser";
 
 describe("ExecutionPanel", () => {
@@ -12,13 +13,15 @@ describe("ExecutionPanel", () => {
       { op: Op.PRINT, args: [0] },
       { op: Op.HALT, args: [] },
     ]);
-    return { program: p, trace: serializeTrace(run(p)), source: renderProgramText(p) };
+    const source = renderProgramText(p);
+    const { lineToInstIdx } = parse(source);
+    return { program: p, trace: serializeTrace(run(p)), source, lineToInstIdx };
   }
 
   it("renders RegisterFile, ProgramView, OutputStream, StackView at stepIdx=0", () => {
     const f = fixture();
     render(
-      <ExecutionPanel program={f.program} source={f.source} trace={f.trace} stepIdx={0} mode="single" />,
+      <ExecutionPanel program={f.program} source={f.source} trace={f.trace} stepIdx={0} mode="single" lineToInstIdx={f.lineToInstIdx} />,
     );
     expect(screen.getByTestId("pgm-line-0")).toHaveAttribute("data-active", "true");
     expect(screen.getByTestId("reg-0-value")).toHaveTextContent("5");
@@ -35,6 +38,7 @@ describe("ExecutionPanel", () => {
         stepIdx={1}
         mode="compare"
         modelOutput={[5]}
+        lineToInstIdx={f.lineToInstIdx}
       />,
     );
     expect(screen.getByTestId("out-model-0")).toHaveTextContent("5");

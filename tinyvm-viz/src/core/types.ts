@@ -16,6 +16,7 @@ export interface BundleMeta {
   seed: number;
   spec?: Record<string, unknown>;
   tier?: string;
+  interpreterError?: string;
 }
 
 export interface ComparisonBundle {

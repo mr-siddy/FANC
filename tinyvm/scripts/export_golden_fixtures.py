@@ -13,15 +13,49 @@ from tinyvm.tokeniser import render_direct_text
 
 
 # A small, fixed sweep — Tier 0/1/2 difficulty axes.
-COUNTER_SEEDS: list[tuple[int, int]] = [(0, 4), (1, 8), (2, 4), (3, 6)]
+COUNTER_SEEDS: list[tuple[int, int]] = [
+    (0, 4), (1, 8), (2, 4), (3, 6),
+    (4, 12), (5, 16), (6, 24), (7, 8),
+]
+
 REGISTER_TRACE_SPECS: list[tuple[int, int, int]] = [  # (seed, n, k)
     (0, 8, 2), (1, 16, 4), (2, 32, 4), (3, 16, 8),
+    (4, 48, 4), (5, 48, 6), (6, 64, 8),
+    (7, 16, 2), (8, 24, 6), (9, 32, 8),
+    (10, 48, 8), (11, 64, 4),
 ]
+
 BRANCHED_SPECS: list[tuple[int, GenSpec]] = [
     (0, GenSpec(n=24, k=4, b=1, l=0)),
     (1, GenSpec(n=32, k=4, b=2, l=4)),
     (2, GenSpec(n=48, k=6, b=2, l=8)),
     (3, GenSpec(n=48, k=6, b=0, l=0, use_stack=True, stack_frames=2)),
+    (4, GenSpec(n=48, k=4, b=2, l=4)),
+    (5, GenSpec(n=64, k=6, b=4, l=8)),
+    (6, GenSpec(n=96, k=6, b=4, l=12)),
+    (7, GenSpec(n=128, k=8, b=8, l=16)),
+    (8, GenSpec(n=32, k=4, b=1, l=0, use_stack=True, stack_frames=1)),
+    (9, GenSpec(n=48, k=6, b=2, l=0, use_stack=True, stack_frames=2)),
+    (10, GenSpec(n=64, k=6, b=4, l=0, use_stack=True, stack_frames=2)),
+    (11, GenSpec(n=64, k=8, b=2, l=0, use_stack=True, stack_frames=3)),
+    (12, GenSpec(n=48, k=4, b=0, l=4, use_stack=True, stack_frames=1)),
+    (13, GenSpec(n=64, k=6, b=0, l=8, use_stack=True, stack_frames=2)),
+    (14, GenSpec(n=96, k=8, b=0, l=12, use_stack=True, stack_frames=2)),
+    (15, GenSpec(n=64, k=6, b=2, l=4, use_stack=True, stack_frames=1)),
+    (16, GenSpec(n=96, k=6, b=2, l=8, use_stack=True, stack_frames=2)),
+    (17, GenSpec(n=128, k=8, b=4, l=8, use_stack=True, stack_frames=2)),
+    (18, GenSpec(n=128, k=8, b=4, l=12, use_stack=True, stack_frames=3)),
+    (19, GenSpec(n=24, k=4, b=3, l=2)),
+    (20, GenSpec(n=24, k=4, b=0, l=6)),
+    (21, GenSpec(n=32, k=4, b=0, l=8)),
+    (22, GenSpec(n=48, k=6, b=1, l=2)),
+    (23, GenSpec(n=64, k=8, b=2, l=6)),
+    (24, GenSpec(n=80, k=8, b=4, l=4)),
+    (25, GenSpec(n=80, k=8, b=2, l=12)),
+    (26, GenSpec(n=96, k=6, b=4, l=6)),
+    (27, GenSpec(n=64, k=6, b=1, l=16)),
+    (28, GenSpec(n=48, k=4, b=4, l=2)),
+    (29, GenSpec(n=64, k=4, b=2, l=4, use_stack=True, stack_frames=1)),
 ]
 
 

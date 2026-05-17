@@ -15,3 +15,18 @@ describe("core types: construction", () => {
     expect(bundle.groundTruth.trace.steps).toHaveLength(1);
   });
 });
+
+describe("BundleMeta.interpreterError", () => {
+  it("accepts a bundle whose meta carries interpreterError (fault bundles)", () => {
+    const step: SerializedStep = { pc: 0, regs: [0,0,0,0,0,0,0,0], stack: [], emitted: null };
+    const trace: SerializedTrace = { steps: [step], output: [], halted: false };
+    const bundle: ComparisonBundle = {
+      schema: "tinyvm-viz/comparison/v1",
+      meta: { generator: "manual", seed: 0, interpreterError: "stack underflow at step 2" },
+      source: "POP R0\n",
+      groundTruth: { trace },
+      prediction: { output: [] },
+    };
+    expect(bundle.meta.interpreterError).toBe("stack underflow at step 2");
+  });
+});

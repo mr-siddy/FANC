@@ -29,3 +29,26 @@ def test_write_fixtures_writes_stable_json(tmp_path: Path):
     write_fixtures(out)
     b = out.read_text()
     assert a == b
+
+
+def test_branched_sweep_covers_combinations():
+    by_bucket = {"sb": 0, "sl": 0, "bl": 0, "sbl": 0}
+    for f in build_fixtures():
+        if f["generator"] != "gen_branched":
+            continue
+        s = f["spec"]
+        if s["use_stack"] and s["b"] > 0:
+            by_bucket["sb"] += 1
+        if s["use_stack"] and s["l"] > 0:
+            by_bucket["sl"] += 1
+        if s["b"] > 0 and s["l"] > 0:
+            by_bucket["bl"] += 1
+        if s["use_stack"] and s["b"] > 0 and s["l"] > 0:
+            by_bucket["sbl"] += 1
+    for bucket, n in by_bucket.items():
+        assert n >= 1, f"no gen_branched fixture in bucket {bucket}"
+
+
+def test_total_fixture_count_at_least_fifty():
+    fixtures = build_fixtures()
+    assert len(fixtures) >= 50, f"expected ~50 fixtures, got {len(fixtures)}"
